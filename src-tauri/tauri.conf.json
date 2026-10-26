@@ -15,8 +15,8 @@
       {
         "label": "panel",
         "title": "AI Control Center",
-        "width": 380,
-        "height": 900,
+        "width": 920,
+        "height": 680,
         "decorations": false,
         "transparent": true,
         "shadow": false,

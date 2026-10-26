@@ -25,7 +25,7 @@ impl AppState {
             db,
             layout: Mutex::new(Layout {
                 edge: "right".to_string(),
-                width: 380.0,
+                width: 880.0,
                 retention_days: 30,
             }),
         }
@@ -39,7 +39,8 @@ impl AppState {
     pub fn set_layout(&self, edge: &str, width: f64) {
         let mut layout = self.layout.lock().unwrap();
         layout.edge = if edge == "left" { "left" } else { "right" }.to_string();
-        layout.width = width.clamp(300.0, 600.0);
+        // Matches PANEL_WIDTH in the webview's settings store.
+        layout.width = width.clamp(760.0, 1040.0);
     }
 
     pub fn retention_days(&self) -> i64 {

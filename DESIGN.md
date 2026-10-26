@@ -2,138 +2,108 @@
 
 <!-- impeccable:design-schema 1 -->
 
-## Visual World: Instrument Panel
+## Visual World: Console
 
-**Lineage.** Measurement hardware: a bench multimeter, a studio channel strip, an aircraft annunciator panel. Instruments earn trust by being legible at a glance, identical every time, and honest about precision. They are dense without being loud, and nothing on their face is decoration.
+**Lineage.** Two references the user pinned: a dark two-column credits console (category cards with charts on the left, a narrative and a selectable list on the right) and an agent-status component (a compact row that opens into a live step log). This replaced the earlier "Instrument Panel" strip; product truth was kept, the look was not.
 
-**What that means here.** The panel is a faceplate, not a web page. Structure comes from hairline rules and spacing, never from nested cards. Numbers are the subject and get the best typography in the system. Meters read as calibrated scales with tick marks, not as candy-colored progress pills. Color is almost absent — it appears only where it carries state, which is exactly what makes a single amber dot readable from across a desk.
+**What that means here.** A floating panel of true neutrals in which the only color belongs to categories. Each category's color appears everywhere that category does, so the eye joins the two columns without reading labels. Numbers are large and light; units sit smaller beside them. Hierarchy comes from size and weight, never from uppercase or decoration.
 
-**Anti-reference.** The AI-product dashboard: gradient cards, glowing accents, rounded-everything, a hero metric in 72px, four colors competing. If a decision could appear on an AI startup landing page, it is wrong here.
+**Anti-reference.** Gradient heroes, glow, glassmorphism, more than one color per meaning, and any control that promises something the CLIs cannot do (Approve, Pause, "Step 5 of 6").
 
 ## Mode
 
-**Operate.** The user completes a glance-and-dismiss task. Scanability, consistency, native expectations, and the real usage scene (a panel over a dark editor, read in two seconds) outrank expression. The brand lives in precise details: the tick marks on a meter, the tabular numerals that do not shift as a timer counts, the way a status dot's word sits next to it.
+**Operate.** A glance-and-dismiss task: how much is left, what is running, what just happened. Interaction exists to drill into one agent, never to manage it.
+
+## Layout
+
+- Floating panel, default **880 × 640** (width 760–1040 in Settings), radius 22, 20px from the screen edge it was summoned from, vertically centered in the monitor's work area.
+- The window is the panel plus that 20px margin, so any click outside the panel dismisses it.
+- **Left column (0.9fr):** three metric cards, equal height — Claude Code, Codex, Agent sessions.
+- **Right column (1.1fr):** title and system status · forecast sentence · weekly split bar and legend · tabs (Agents / Activity / Projects) · scrolling list. The right column is wider because it holds the interactive content.
+- Below a 720px container width the columns stack and the whole panel scrolls (browser preview only; the desktop window never gets that narrow).
 
 ## Theme
 
-Dark-first, light supported, OS-following by default with a Settings override. Picked from the use scene: the panel slides over a code editor, and most of those are dark. Light is a real theme built from the same tokens, not a stylesheet afterthought — the user on a light editor in a bright room gets the same instrument.
+Dark-first, light supported, following the OS by default. All tokens are in `src/styles/tokens.css` under `:root` and `[data-theme]`.
 
 ## Color
 
-A near-neutral graphite ground with one cool accent. Every token is defined in both themes in `src/styles/tokens.css` on `:root` / `[data-theme]`.
+Neutrals carry no hue bias, so category colors are the only color in the panel.
 
-### Dark (primary)
+| Role | Dark | Light |
+|---|---|---|
+| Panel | `#141414` | `#fbfbfb` |
+| Card | `#1b1b1b` | `#f1f1f1` |
+| Option row / selected | `#161616` / `#1a1a1a` | `#f7f7f7` / `#ffffff` |
+| Row border / selected | `#232323` / `#dcdcdc` | `#e4e4e4` / `#1a1a1a` |
+| Text 1 / 2 / 3 | `#f2f2f2` / `#8f8f8f` / `#6c6c6c` | `#141414` / `#5f5f5f` / `#858585` |
+| Primary action | `#f2f2f2` on `#111111` | `#161616` on `#fafafa` |
 
-| Role | Token | Value | Use |
+### Categories
+
+| Category | Dark | Light | Chart form |
 |---|---|---|---|
-| Ground | `--surface-0` | `#0c0d10` | Panel backdrop, behind everything |
-| Faceplate | `--surface-1` | `#131519` | The panel's own material |
-| Raised | `--surface-2` | `#191c21` | Hover rows, meter troughs |
-| Sunken | `--surface-inset` | `#0a0b0e` | Inset wells (meter channel, history plot) |
-| Hairline | `--rule` | `#23262c` | The structural line — the system's workhorse |
-| Hairline strong | `--rule-strong` | `#2e323a` | Section boundaries |
-| Primary text | `--text-1` | `#e6e8ec` | Values, names, headings |
-| Secondary text | `--text-2` | `#9ba3ae` | Labels, meta, timestamps |
-| Tertiary text | `--text-3` | `#6b7380` | Axis ticks, provenance marks |
-| Accent | `--accent` | `#4da3ff` | Focus, selection, the one live highlight |
-| Accent sunken | `--accent-dim` | `#18314d` | Accent well, selection ground |
+| Claude Code | `#f5923e` | `#d2661a` | Bars |
+| Codex | `#5b9dff` | `#2563eb` | Line with area |
+| Agent sessions | `#f0659d` | `#cf3478` | Lollipop |
 
-### Semantic state
+Each color names one thing: its card label, its chart, its stacked-bar segment, its legend dot, and the ring on its agents' avatars.
 
-Instrument-grade, desaturated — readable, never festive. Each is paired with a word in the UI, never color alone.
+### State
 
-| State | Dark | Light | Meaning |
-|---|---|---|---|
-| OK / Active | `#3fb950` | `#1a7f37` | Operating normally |
-| Idle | `#7d8590` | `#6e7781` | Connected, nothing running |
-| Warn | `#d29922` | `#9a6700` | Approaching a limit |
-| Error / Offline | `#f85149` | `#cf222e` | Needs attention |
-
-### Rules
-
-- Accent is a single hue. No second accent, no gradients, no gradient text.
-- Secondary text on a tinted surface is tinted from that hue, never flat gray.
-- Meter fill uses the state color at the usage level it represents, so the bar and the dot always agree.
+OK `#3fb950`, warn `#e3a52a`, error `#f0524a`. Always paired with a word ("Needs you", "Done"). Success is the normal case and is not colored in lists; only problems take color.
 
 ## Typography
 
-Two self-hosted faces, both chosen for data legibility rather than character.
+**Inter Variable** for UI, **JetBrains Mono Variable** for timers and durations only (measurement, never decoration). Tabular numerals everywhere digits change.
 
-- **Inter Variable** (`@fontsource-variable/inter`) — all UI text. `font-feature-settings: "tnum" 1, "cv05" 1, "ss03" 1`: tabular numerals so a counting timer never shifts width, and the disambiguated l/I forms that matter in project names.
-- **JetBrains Mono Variable** (`@fontsource-variable/jetbrains-mono`) — measurement only: elapsed timers, file paths, session ids, axis values. Mono here is for *data and measurement*, never as a costume for "technical".
+| Role | Size / line | Weight | Use |
+|---|---|---|---|
+| `t-figure` | 34 / 38 | 460, −0.035em | The card's number; its `%` is set at 0.62em |
+| `t-title` | 17 / 22 | 600 | "AI Control Center", "Settings" |
+| `t-strong` | 14 / 20 | 560 | Agent headline, emphasised figures in prose |
+| `t-body` | 13 / 20 | 440 | Forecast, sub-lines, step labels |
+| `t-label` | 13 / 18 | 540 | Card labels, tabs, buttons |
+| `t-caption` | 11 / 14 | 460 | Axes, group headers, `est.` |
+| `t-mono` | 12 / 16 | 460 | `03:23`, `1.9s` |
 
-### Scale
+Sentence case throughout. No uppercase labels, no eyebrows.
 
-Small and tight, because the panel is 380px wide and read at desk distance.
+## Components
 
-| Token | Size / line | Weight | Tracking | Use |
-|---|---|---|---|---|
-| `--t-display` | 20px / 24px | 560 | -0.02em | The one large number, if any |
-| `--t-value` | 15px / 20px | 540 | -0.015em | Usage percentages, counts |
-| `--t-body` | 12.5px / 17px | 450 | -0.005em | Names, messages |
-| `--t-label` | 11px / 14px | 520 | 0.01em | Field labels |
-| `--t-section` | 10px / 12px | 600 | 0.08em | Section headers, uppercase |
-| `--t-meta` | 10.5px / 13px | 450 | 0.005em | Timestamps, provenance |
-
-Section headers are uppercase, tracked out, in `--text-3`. They are the only uppercase in the system. No kickers or eyebrows anywhere — a ban, not a preference.
-
-## Space
-
-4px base. Tokens `--s-1` (4) through `--s-8` (32). Tight inside a group, generous between groups; more space above a heading than below it, so a header binds to the content it introduces.
-
-- Panel padding: 14px horizontal, 12px vertical.
-- Row height: 28px minimum for a pointer target, 20px for a pure data line.
-- Between sections: a `--rule` hairline plus 14px above / 10px below.
-
-## Form
-
-- **Radius:** `--r-sm` 3px, `--r-md` 5px, `--r-lg` 7px. The panel's outer edge is 10px on the free side and 0 on the screen-edge side — it is attached to the edge, not floating near it.
-- **Structure:** hairline rules and spacing. Cards are permitted only where a thing is genuinely liftable (an agent session row on hover); nested cards never.
-- **Depth:** `--shadow-panel: -12px 0 36px -8px rgb(0 0 0 / 0.55), 0 0 0 1px var(--rule)`. Real offset plus soft blur, mirrored for the left edge. No zero-offset halos.
-- **Meters:** a 4px inset channel with a 1px tick every 10%, filled from the left with the state color. The ticks are the calibration — they make the bar a scale instead of a decoration, and they are what distinguishes this from every other progress bar.
-
-## Icons
-
-Lucide, 14px, 1.5px stroke, consistently. Never a Unicode glyph or emoji standing in for an icon. Status is a drawn 6px dot plus its word, not an icon.
+- **Metric card** — label row (icon, colored name, state word); figure and unit bottom-left; one-line detail; chart right. Hover lights the matching bar segment and legend item; other cards step back to 60% opacity.
+- **Chart** — seven days, three y-ticks on a rounded scale (labels name values the chart reaches), one-letter weekdays. Hover shows a column highlight and a tooltip with the day and value.
+- **Stacked bar** — provider split of the week, 4px gaps between segments, legend with counts.
+- **Forecast** — one sentence with the figures in a heavier weight, always ending in `est.`.
+- **Agent card** — an option row that opens to its full status when selected:
+  - Avatar: category glyph with a rotating arc while running, a warn badge when waiting, a check when done.
+  - Headline: current step (rolls when it changes), or "Done in 19m · 6 files changed".
+  - Sub-line: project · model on the left, state word or "Step N" on the right, aligned with the timer.
+  - Open: one segment per step taken (no total), the last five steps with durations, and only real actions — Respond in terminal (primary, when waiting), Open terminal, Stop (where supported, two clicks), Copy, Open project.
+- **Tabs** — pill group with a sliding indicator; the Agents tab carries a count and a warn dot when an agent needs you.
 
 ## Motion
 
-Owned by one authored moment: the panel arriving from the edge. Everything else is a state change rendered quickly and quietly.
+One authored moment: arrival from the edge.
 
 | Moment | Spec |
 |---|---|
-| Panel enter | Spring, x from ±100% to 0, opacity 0→1. `stiffness 420, damping 36, mass 0.9` — physical, arrives settled, no overshoot past the edge. |
-| Panel exit | 140ms `cubic-bezier(0.32, 0.72, 0, 1)`, x to ±16px plus opacity to 0. Fast but not snapped. |
-| Content stagger | 18ms per section, 6px rise, capped at 7 steps. Rides the panel's arrival once; never replays on data change. |
-| Meter / number | 420ms exponential ease-out on the fill and on the digits. Numbers tween, they never jump. |
-| Status change | 180ms crossfade on the dot color. The word swaps instantly — text must not be mid-fade when read. |
-| Hover | 90ms, opacity and background only. Max 1px of movement anywhere in the product. |
-| Notification | 220ms spring in from the top, 6px rise. |
+| Panel enter (edge or tray) | Spring from fully off screen, `stiffness 420, damping 36, mass 0.9` |
+| Panel enter (shortcut) | None. A high-frequency keyboard action gets no entrance |
+| Panel exit | 140ms `cubic-bezier(0.32,0.72,0,1)`, 16px nudge and fade |
+| Charts | Bars and stems rise from the baseline, the line draws along its length, 550–700ms ease-out-expo, on open only |
+| Stacked bar | Left-to-right `clip-path` reveal, 700ms, on open only |
+| Agent card open | Height to its measured value, 320ms; body fades in after |
+| Current step change | Old line leaves up, new arrives from below, 240ms with a 2px blur |
+| Tab change | Indicator springs between tabs; content crossfades in 180ms |
+| Hover | Background and opacity only, 100–150ms. Nothing moves |
 
-At rest the product animates nothing. Under `prefers-reduced-motion` the panel presents instantly with opacity only, stagger is removed, and meters and digits settle without tweening.
+Two loops exist, both only while an agent is actually working: the avatar arc and a sweep across the open step's segment. Both are transform-only and stop under reduced motion. Nothing else animates at rest.
 
 ## Browser surfaces
 
-The parts not drawn still carry the design, and they ship with defaults belonging to no design system. All are themed from the palette:
-
-- `::selection` — accent at 22%, text unchanged.
-- `caret-color` — accent.
-- Scrollbars — 6px, `--rule-strong` thumb, transparent track, no arrows; `scrollbar-width: thin` for the Firefox/WebKitGTK path.
-- Focus ring — `0 0 0 2px var(--surface-1), 0 0 0 3px var(--accent)`, `:focus-visible` only.
-- Tabular numerals on every numeric node, so no value shifts width as it changes.
-- `-webkit-user-select: none` on chrome, re-enabled on copyable data.
-- No text decoration skip defaults left unset; underline offset 2px where links exist.
+Selection, caret, scrollbars, focus rings (2px panel gap plus 2px focus blue), range thumbs and tabular numerals are all themed from the tokens. Scroll edges of the agent list fade instead of showing a hard cut.
 
 ## Copy
 
-The product's own voice: precise, literal, measured.
-
-- Labels name the quantity: "Remaining", "Resets", "Active".
-- Controls name the action: "Open project", "Copy session", "Refresh".
-- Errors name the problem and the recovery: "Codex state unreadable — check that the CLI has run at least once."
-- Provenance is a word, not a tooltip-only secret: `local` and `est.` render inline in `--text-3`.
-- No exclamation marks. No "Great news". No congratulation.
-
-## Component inventory
-
-`StatusDot` · `Meter` (calibrated) · `ProviderCard` · `SessionRow` · `ActivityRow` · `Timeline` · `UsageHistory` (7-day) · `ProjectBreakdown` · `SectionHeader` · `NotificationStack` · `ProvenanceTag` · `IconButton` · `Toggle` · `Select` · `Slider` · `ShortcutRecorder` · `SettingsPane`.
+Precise and literal. Controls name their action ("Respond in terminal", "Open project"). Errors name the problem and the recovery. Derived numbers say `est.` or `local` every time they are shown.

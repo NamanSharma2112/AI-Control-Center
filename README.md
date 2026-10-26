@@ -152,12 +152,26 @@ optimization:
 
 ## Design
 
-`DESIGN.md` holds the visual system ("Instrument Panel" — hairline structure,
-calibrated meters, one accent, dark-first with a real light theme).
-`PRODUCT.md` holds the product record.
+`DESIGN.md` holds the visual system ("Console": a floating two-column panel,
+true-neutral surfaces, one color per category used everywhere that category
+appears, dark-first with a real light theme). `PRODUCT.md` holds the product
+record.
+
+- **Left:** a card per category (Claude Code, Codex, Agent sessions) with usage
+  left and a seven-day chart. Hover a card and its slice of the weekly split
+  lights up on the right, and the reverse.
+- **Right:** a one-sentence forecast ("At that pace Claude Code runs out in
+  1h 21m, before it resets in 1h 50m. est."), the week's split by provider, and
+  the agents. Select an agent to open its status: every step it took, how long
+  each took, and the actions that genuinely work for it.
+
+Two things the design deliberately does not show, because they would not be
+true: a step total ("Step 5 of 6" — a live agent has none) and Approve or Pause
+buttons (neither CLI accepts them from another process). A waiting agent offers
+*Respond in terminal* instead.
 
 Motion has one authored moment: the panel arriving from the edge while its
-meters calibrate from zero. A keyboard-summoned open deliberately has **no**
-entrance — it is a high-frequency action, and 300ms between the keypress and the
-answer every time is worse than no animation. `prefers-reduced-motion` is
-honored, and Settings can reduce or disable motion outright.
+charts draw in. A keyboard-summoned open deliberately has **no** entrance — it
+is a high-frequency action, and 300ms between the keypress and the answer every
+time is worse than no animation. `prefers-reduced-motion` is honored, and
+Settings can reduce or disable motion outright.

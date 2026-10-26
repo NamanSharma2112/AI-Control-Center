@@ -4,6 +4,15 @@
  * map them onto the normalized domain model immediately.
  */
 
+export interface LocalStepDto {
+  id: string;
+  /** Domain StepKind string. */
+  kind: string;
+  label: string;
+  startedAt: number;
+  durationMs: number | null;
+}
+
 export interface LocalSessionDto {
   id: string;
   project: string;
@@ -14,6 +23,9 @@ export interface LocalSessionDto {
   lastActivityAt: number;
   currentActivity: string;
   eventCount: number;
+  model: string | null;
+  steps: LocalStepDto[];
+  filesChanged: number;
 }
 
 export interface LocalActivityDto {

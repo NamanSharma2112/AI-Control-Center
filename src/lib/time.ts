@@ -73,3 +73,17 @@ export function startOfLocalDay(ms: number): number {
 }
 
 export { DAY, HOUR, MINUTE };
+
+/** `1.9s`, `41s`, `2m 3s`, `1h 4m` — a step's duration, as precise as it is useful. */
+export function formatDuration(ms: number): string {
+  if (ms < 10_000) return `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+  if (ms < MINUTE) return `${Math.round(ms / 1000)}s`;
+  if (ms < HOUR) {
+    const m = Math.floor(ms / MINUTE);
+    const s = Math.round((ms % MINUTE) / 1000);
+    return s > 0 ? `${m}m ${s}s` : `${m}m`;
+  }
+  const h = Math.floor(ms / HOUR);
+  const m = Math.round((ms % HOUR) / MINUTE);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}

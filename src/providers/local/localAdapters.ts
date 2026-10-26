@@ -8,6 +8,8 @@ import type {
   ProviderStatus,
   Session,
   SessionStatus,
+  SessionStep,
+  StepKind,
   Usage,
 } from '@/types/domain';
 import { invokeSafe, invokeStrict } from '@/lib/tauri';
@@ -108,6 +110,15 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
           lastActivityAt: s.lastActivityAt,
           currentActivity: s.currentActivity,
           source: 'local',
+          ...(s.model ? { model: s.model } : {}),
+          steps: s.steps.map<SessionStep>((step) => ({
+            id: step.id,
+            kind: asStepKind(step.kind),
+            label: step.label,
+            startedAt: step.startedAt,
+            durationMs: step.durationMs,
+          })),
+          filesChanged: s.filesChanged,
         }))
         .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     },
@@ -162,6 +173,22 @@ function asActivityType(raw: string): ActivityType {
   return (ACTIVITY_TYPES as readonly string[]).includes(raw)
     ? (raw as ActivityType)
     : 'command-run';
+}
+
+const STEP_KINDS: readonly StepKind[] = [
+  'prompt',
+  'read',
+  'search',
+  'edit',
+  'test',
+  'command',
+  'git',
+  'reply',
+  'waiting',
+];
+
+function asStepKind(raw: string): StepKind {
+  return (STEP_KINDS as readonly string[]).includes(raw) ? (raw as StepKind) : 'command';
 }
 
 function asLimitWindow(raw: string): LimitWindow {

@@ -26,6 +26,20 @@ const TAIL_BYTES: u64 = 64 * 1024;
 /// Cap on activities returned, before the UI's own limit.
 const MAX_ACTIVITIES: usize = 200;
 
+/// Steps kept per session after merging. The card shows the last five.
+const MAX_STEPS: usize = 8;
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalStepDto {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub started_at: i64,
+    /// Time until the next step began; None for the latest step.
+    pub duration_ms: Option<i64>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalSessionDto {
@@ -37,6 +51,9 @@ pub struct LocalSessionDto {
     pub last_activity_at: i64,
     pub current_activity: String,
     pub event_count: i64,
+    pub model: Option<String>,
+    pub steps: Vec<LocalStepDto>,
+    pub files_changed: i64,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -83,7 +100,9 @@ impl LocalProviderStateDto {
     }
 }
 
-/// One record from a transcript, reduced to what we actually use.
+/// One record from a transcript, reduced to what we actually use. Both CLIs'
+/// shapes fit: Claude Code puts fields at the top level and under `message`,
+/// Codex wraps them in `payload`.
 #[derive(Debug, Deserialize, Default)]
 struct Record {
     #[serde(default)]
@@ -100,8 +119,15 @@ struct Record {
     message: Option<serde_json::Value>,
     #[serde(default)]
     payload: Option<serde_json::Value>,
-    #[serde(default)]
-    text: Option<String>,
+}
+
+/// What a record contributed to the agent's visible progress.
+#[derive(Debug, Clone, PartialEq)]
+struct Step {
+    kind: &'static str,
+    label: String,
+    /// The file a read or edit touched, for merging runs and counting edits.
+    file: Option<String>,
 }
 
 pub fn read_provider_state(provider: &str, cap: i64) -> LocalProviderStateDto {
@@ -112,24 +138,27 @@ pub fn read_provider_state(provider: &str, cap: i64) -> LocalProviderStateDto {
     }
 }
 
-/// What differs between the two CLIs. Adding a third means adding one of
-/// these, not touching the scanning logic.
+/// What differs between the CLIs. Adding a third means adding one of these,
+/// not touching the scanning logic.
 trait CliLayout {
     fn name(&self) -> &'static str;
     /// The CLI's state directory, e.g. `~/.claude`.
     fn root(&self) -> Option<PathBuf>;
     /// Directory holding session transcripts, relative to the root.
     fn sessions_dir(&self, root: &Path) -> PathBuf;
-    /// Unit the usage figure is counted in.
     fn unit(&self) -> &'static str;
-    /// Which limit window the usage figure belongs to.
     fn window(&self) -> &'static str;
-    /// Length of that window, for the reset countdown.
     fn window_ms(&self) -> i64;
     /// How much one record contributes to the usage count.
     fn weigh(&self, record: &Record, raw: &str) -> i64;
-    /// Human description of what a record was, for the activity feed.
-    fn describe(&self, record: &Record) -> Option<(String, String)>;
+    /// The visible step this record represents, if any.
+    fn step(&self, record: &Record) -> Option<Step>;
+    /// Model name, when this record carries one.
+    fn model(&self, record: &Record) -> Option<String>;
+    /// Working directory, when this record carries one.
+    fn cwd(&self, record: &Record) -> Option<String> {
+        record.cwd.clone()
+    }
 }
 
 struct ClaudeCode;
@@ -156,9 +185,8 @@ impl CliLayout for ClaudeCode {
     }
 
     fn weigh(&self, record: &Record, _raw: &str) -> i64 {
-        // Token counts the CLI already recorded for its own requests. This is
-        // a local reading of the user's own transcript, not a provider figure,
-        // and the UI labels it as such.
+        // Token counts the CLI recorded for its own requests: a local reading
+        // of the user's transcript, labelled as such in the UI.
         record
             .message
             .as_ref()
@@ -173,32 +201,110 @@ impl CliLayout for ClaudeCode {
             .unwrap_or(0)
     }
 
-    fn describe(&self, record: &Record) -> Option<(String, String)> {
-        match record.kind.as_deref() {
-            Some("user") => Some(("command-run".into(), "Prompt sent".into())),
-            Some("assistant") => {
-                let tool = record
-                    .message
-                    .as_ref()
-                    .and_then(|m| m.get("content"))
-                    .and_then(|c| c.as_array())
-                    .and_then(|items| {
-                        items.iter().find_map(|i| {
-                            (i.get("type")?.as_str()? == "tool_use")
-                                .then(|| i.get("name")?.as_str().map(str::to_string))?
-                        })
-                    });
-                match tool.as_deref() {
-                    Some("Edit") | Some("Write") | Some("NotebookEdit") => {
-                        Some(("file-edited".into(), "Edited files".into()))
-                    }
-                    Some("Bash") => Some(("command-run".into(), "Ran a command".into())),
-                    Some(other) => Some(("command-run".into(), format!("Used {other}"))),
-                    None => Some(("task-completed".into(), "Replied".into())),
+    fn step(&self, record: &Record) -> Option<Step> {
+        let message = record.message.as_ref()?;
+        let content = message.get("content")?;
+
+        match record.kind.as_deref()? {
+            // A user record is either a typed prompt or the result of a tool
+            // call. Only the first is a step; tool results just close the
+            // previous one.
+            "user" => {
+                let text = match content {
+                    serde_json::Value::String(s) => Some(s.as_str()),
+                    serde_json::Value::Array(items) => items.iter().find_map(|i| {
+                        (i.get("type")?.as_str()? == "text").then(|| i.get("text")?.as_str())?
+                    }),
+                    _ => None,
+                }?;
+                let text = text.trim();
+                // Command wrappers and system notes are not something the
+                // user typed.
+                if text.is_empty() || text.starts_with('<') {
+                    return None;
                 }
+                Some(Step {
+                    kind: "prompt",
+                    label: first_line(text, 64),
+                    file: None,
+                })
+            }
+            "assistant" => {
+                let tool = content
+                    .as_array()?
+                    .iter()
+                    .find(|i| i.get("type").and_then(|t| t.as_str()) == Some("tool_use"))?;
+                let name = tool.get("name")?.as_str()?;
+                let input = tool.get("input");
+                let field = |k: &str| {
+                    input
+                        .and_then(|i| i.get(k))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                };
+                Some(match name {
+                    "Read" => {
+                        let path = field("file_path");
+                        Step {
+                            kind: "read",
+                            label: format!("Read {}", basename(path.as_deref())),
+                            file: path,
+                        }
+                    }
+                    "Edit" | "MultiEdit" | "Write" | "NotebookEdit" => {
+                        let path = field("file_path").or_else(|| field("notebook_path"));
+                        Step {
+                            kind: "edit",
+                            label: format!("Edited {}", basename(path.as_deref())),
+                            file: path,
+                        }
+                    }
+                    "Grep" | "Glob" => Step {
+                        kind: "search",
+                        label: format!(
+                            "Searched for {}",
+                            truncate(&field("pattern").unwrap_or_default(), 40)
+                        ),
+                        file: None,
+                    },
+                    "WebFetch" | "WebSearch" => Step {
+                        kind: "search",
+                        label: "Looked something up".into(),
+                        file: None,
+                    },
+                    "Bash" => command_step(
+                        &field("command").unwrap_or_default(),
+                        field("description").as_deref(),
+                    ),
+                    "Task" => Step {
+                        kind: "command",
+                        label: format!(
+                            "Delegated: {}",
+                            truncate(&field("description").unwrap_or_default(), 44)
+                        ),
+                        file: None,
+                    },
+                    // Bookkeeping tools are not progress the user cares about.
+                    "TodoWrite" | "ExitPlanMode" => return None,
+                    other => Step {
+                        kind: "command",
+                        label: format!("Used {other}"),
+                        file: None,
+                    },
+                })
             }
             _ => None,
         }
+    }
+
+    fn model(&self, record: &Record) -> Option<String> {
+        record
+            .message
+            .as_ref()?
+            .get("model")?
+            .as_str()
+            .filter(|m| !m.starts_with('<'))
+            .map(str::to_string)
     }
 }
 
@@ -222,29 +328,150 @@ impl CliLayout for Codex {
         7 * 86_400_000
     }
 
-    fn weigh(&self, record: &Record, raw: &str) -> i64 {
-        // Codex does not record token counts in its rollouts, so the honest
-        // local measure is "requests made": one per user turn.
-        let is_turn = record.kind.as_deref() == Some("user")
-            || raw.contains("\"role\":\"user\"")
-            || record.text.is_some();
-        i64::from(is_turn)
+    fn weigh(&self, record: &Record, _raw: &str) -> i64 {
+        // Codex rollouts carry no token counts, so the honest local measure is
+        // requests made: one per prompt the user actually typed.
+        i64::from(matches!(
+            self.step(record),
+            Some(Step { kind: "prompt", .. })
+        ))
     }
 
-    fn describe(&self, record: &Record) -> Option<(String, String)> {
-        match record.kind.as_deref() {
-            Some("user") => Some(("command-run".into(), "Prompt sent".into())),
-            Some("assistant") | Some("message") => {
-                Some(("task-completed".into(), "Replied".into()))
+    fn step(&self, record: &Record) -> Option<Step> {
+        let payload = record.payload.as_ref()?;
+        match payload.get("type")?.as_str()? {
+            "message" => {
+                if payload.get("role")?.as_str()? != "user" {
+                    return None;
+                }
+                let text = payload
+                    .get("content")?
+                    .as_array()?
+                    .iter()
+                    .find_map(|i| i.get("text")?.as_str())?
+                    .trim();
+                // Environment and instruction blocks are injected, not typed.
+                if text.is_empty() || text.starts_with('<') {
+                    return None;
+                }
+                Some(Step {
+                    kind: "prompt",
+                    label: first_line(text, 64),
+                    file: None,
+                })
             }
-            Some("function_call") | Some("tool_use") => {
-                Some(("command-run".into(), "Ran a tool".into()))
+            "function_call" | "custom_tool_call" | "local_shell_call" => {
+                let name = payload
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("shell");
+                let args: serde_json::Value = payload
+                    .get("arguments")
+                    .or_else(|| payload.get("input"))
+                    .map(|a| match a {
+                        serde_json::Value::String(s) => {
+                            serde_json::from_str(s).unwrap_or(serde_json::Value::String(s.clone()))
+                        }
+                        other => other.clone(),
+                    })
+                    .unwrap_or(serde_json::Value::Null);
+
+                if name == "apply_patch" {
+                    let patch = args.as_str().map(str::to_string).unwrap_or_else(|| {
+                        args.get("input")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string()
+                    });
+                    let file = patch.lines().find_map(|l| {
+                        l.strip_prefix("*** Update File: ")
+                            .or_else(|| l.strip_prefix("*** Add File: "))
+                            .map(|p| p.trim().to_string())
+                    });
+                    return Some(Step {
+                        kind: "edit",
+                        label: format!("Edited {}", basename(file.as_deref())),
+                        file,
+                    });
+                }
+
+                let command = match args.get("command") {
+                    Some(serde_json::Value::Array(parts)) => {
+                        let parts: Vec<&str> = parts.iter().filter_map(|p| p.as_str()).collect();
+                        // `bash -lc "<script>"` — the script is the command.
+                        match parts.as_slice() {
+                            [_, flag, script] if flag.starts_with('-') => script.to_string(),
+                            _ => parts.join(" "),
+                        }
+                    }
+                    Some(serde_json::Value::String(s)) => s.clone(),
+                    _ => args
+                        .get("cmd")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                };
+                if command.is_empty() {
+                    return Some(Step {
+                        kind: "command",
+                        label: format!("Used {name}"),
+                        file: None,
+                    });
+                }
+                Some(command_step(&command, None))
             }
-            _ => record
-                .text
-                .as_ref()
-                .map(|_| ("command-run".into(), "Prompt sent".into())),
+            _ => None,
         }
+    }
+
+    fn model(&self, record: &Record) -> Option<String> {
+        let payload = record.payload.as_ref()?;
+        payload.get("model")?.as_str().map(str::to_string)
+    }
+
+    fn cwd(&self, record: &Record) -> Option<String> {
+        record.cwd.clone().or_else(|| {
+            record
+                .payload
+                .as_ref()?
+                .get("cwd")?
+                .as_str()
+                .map(str::to_string)
+        })
+    }
+}
+
+/// Classifies a shell command into a step. Tests and git get their own kinds
+/// because they are the moments a user most wants to see.
+fn command_step(command: &str, description: Option<&str>) -> Step {
+    let c = command.trim();
+    let is_test = [
+        "test",
+        "pytest",
+        "jest",
+        "vitest",
+        "mocha",
+        "rspec",
+        "go test",
+        "cargo nextest",
+    ]
+    .iter()
+    .any(|t| c.contains(t));
+    let kind = if c.starts_with("git ") {
+        "git"
+    } else if is_test {
+        "test"
+    } else {
+        "command"
+    };
+    let label = match description.map(str::trim).filter(|d| !d.is_empty()) {
+        Some(d) => truncate(d, 52),
+        None => format!("Ran {}", truncate(first_line(c, 200).as_str(), 46)),
+    };
+    Step {
+        kind,
+        label,
+        file: None,
     }
 }
 
@@ -300,18 +527,40 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
             .unwrap_or("unknown")
             .to_string();
 
-        for (i, (kind, message, ts)) in scan.activities.iter().enumerate() {
+        let merged = merge_runs(&scan.steps);
+        let files_changed = count_files(&scan.steps);
+
+        // The activity feed is the merged steps, so it reads the same way the
+        // card does instead of listing every file read separately.
+        for (i, (step, ts, _)) in merged.iter().enumerate() {
             activities.push(LocalActivityDto {
                 id: format!("{id}-{i}"),
                 session_id: Some(id.clone()),
                 project: Some(project.clone()),
-                kind: kind.clone(),
-                message: message.clone(),
+                kind: activity_type(step).to_string(),
+                message: step.label.clone(),
                 timestamp: *ts,
             });
         }
 
+        let tail_start = merged.len().saturating_sub(MAX_STEPS);
+        let steps: Vec<LocalStepDto> = merged[tail_start..]
+            .iter()
+            .enumerate()
+            .map(|(i, (step, ts, dur))| LocalStepDto {
+                id: format!("{id}-step-{}", tail_start + i),
+                kind: step.kind.to_string(),
+                label: step.label.clone(),
+                started_at: *ts,
+                duration_ms: *dur,
+            })
+            .collect();
+
         let last_activity_at = scan.last_ts.unwrap_or(modified);
+        let current_activity = steps
+            .last()
+            .map(|s| s.label.clone())
+            .unwrap_or_else(|| "Working".to_string());
 
         sessions.push(LocalSessionDto {
             id,
@@ -322,8 +571,11 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
             status: "active".to_string(),
             started_at: scan.first_ts.unwrap_or(modified),
             last_activity_at,
-            current_activity: scan.last_message.unwrap_or_else(|| "Working".to_string()),
+            current_activity,
             event_count: scan.event_count,
+            model: scan.model,
+            steps,
+            files_changed,
         });
     }
 
@@ -348,6 +600,85 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
     }
 }
 
+fn activity_type(step: &Step) -> &'static str {
+    match step.kind {
+        "edit" => "file-edited",
+        "prompt" => "session-started",
+        "test" if step.label.starts_with("Passed") => "task-completed",
+        _ => "command-run",
+    }
+}
+
+/// Collapses runs of the same kind into one step: twelve consecutive reads
+/// become "Read 12 files", which is what a glance needs. Returns each merged
+/// step with its start time and its duration (until the next step began).
+fn merge_runs(steps: &[(Step, i64)]) -> Vec<(Step, i64, Option<i64>)> {
+    let mut groups: Vec<(Step, i64, usize)> = Vec::new();
+    for (step, ts) in steps {
+        match groups.last_mut() {
+            Some((prev, _, count))
+                if prev.kind == step.kind && matches!(step.kind, "read" | "search" | "edit") =>
+            {
+                *count += 1;
+                *prev = step.clone();
+            }
+            _ => groups.push((step.clone(), *ts, 1)),
+        }
+    }
+
+    let starts: Vec<i64> = groups.iter().map(|(_, ts, _)| *ts).collect();
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(i, (step, ts, count))| {
+            let label = if count > 1 {
+                match step.kind {
+                    "read" => format!("Read {count} files"),
+                    "edit" => format!("Edited {count} files"),
+                    _ => format!("Ran {count} searches"),
+                }
+            } else {
+                step.label
+            };
+            let duration = starts.get(i + 1).map(|next| (next - ts).max(0));
+            (Step { label, ..step }, ts, duration)
+        })
+        .collect()
+}
+
+fn count_files(steps: &[(Step, i64)]) -> i64 {
+    let mut seen = std::collections::HashSet::new();
+    for (step, _) in steps {
+        if step.kind == "edit" {
+            if let Some(file) = &step.file {
+                seen.insert(file.as_str());
+            }
+        }
+    }
+    seen.len() as i64
+}
+
+fn basename(path: Option<&str>) -> String {
+    path.and_then(|p| Path::new(p).file_name())
+        .and_then(|n| n.to_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| "a file".to_string())
+}
+
+/// Truncates on a character boundary, never mid-codepoint.
+fn truncate(s: &str, max: usize) -> String {
+    let s = s.trim();
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max.saturating_sub(1)).collect();
+    format!("{}…", cut.trim_end())
+}
+
+fn first_line(s: &str, max: usize) -> String {
+    truncate(s.lines().next().unwrap_or(""), max)
+}
+
 /// Where the current usage window ends.
 fn next_reset<L: CliLayout>(layout: &L, now: i64) -> i64 {
     match layout.window() {
@@ -364,11 +695,11 @@ struct SessionScan {
     session_id: Option<String>,
     first_ts: Option<i64>,
     last_ts: Option<i64>,
-    last_message: Option<String>,
     cwd: Option<String>,
+    model: Option<String>,
     weighted: i64,
     event_count: i64,
-    activities: Vec<(String, String, i64)>,
+    steps: Vec<(Step, i64)>,
 }
 
 /// Reads the head of a transcript for its origin, and the tail for what is
@@ -382,22 +713,23 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
         session_id: None,
         first_ts: None,
         last_ts: None,
-        last_message: None,
         cwd: None,
+        model: None,
         weighted: 0,
         event_count: 0,
-        activities: Vec::new(),
+        steps: Vec::new(),
     };
 
-    // Head: one line is enough for the project and the start time.
+    // Head: the first line carries the project and the start time.
     {
         let mut head = String::new();
         let mut reader = BufReader::new(&file);
         if reader.read_line(&mut head).ok()? > 0 {
             if let Ok(record) = serde_json::from_str::<Record>(head.trim()) {
-                scan.cwd = record.cwd.clone();
+                scan.cwd = layout.cwd(&record);
                 scan.session_id = record.session_id.clone();
                 scan.first_ts = parse_ts(&record);
+                scan.model = layout.model(&record);
             }
         }
     }
@@ -426,32 +758,31 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
 
         scan.event_count += 1;
         if scan.cwd.is_none() {
-            scan.cwd = record.cwd.clone();
+            scan.cwd = layout.cwd(&record);
         }
         if scan.session_id.is_none() {
             scan.session_id = record.session_id.clone();
         }
+        // The latest model wins: a session can switch models mid-way.
+        if let Some(model) = layout.model(&record) {
+            scan.model = Some(model);
+        }
 
-        let ts = parse_ts(&record);
-        if let Some(ts) = ts {
-            scan.last_ts = Some(scan.last_ts.map_or(ts, |prev: i64| prev.max(ts)));
-            if scan.first_ts.is_none() {
-                scan.first_ts = Some(ts);
-            }
-            // Only work inside the current window counts against the limit.
-            if ts >= window_start {
-                scan.weighted += layout.weigh(&record, line);
-            }
-            if let Some((kind, message)) = layout.describe(&record) {
-                scan.last_message = Some(message.clone());
-                scan.activities.push((kind, message, ts));
-            }
+        let Some(ts) = parse_ts(&record) else {
+            continue;
+        };
+        scan.last_ts = Some(scan.last_ts.map_or(ts, |prev: i64| prev.max(ts)));
+        if scan.first_ts.is_none() {
+            scan.first_ts = Some(ts);
+        }
+        // Only work inside the current window counts against the limit.
+        if ts >= window_start {
+            scan.weighted += layout.weigh(&record, line);
+        }
+        if let Some(step) = layout.step(&record) {
+            scan.steps.push((step, ts));
         }
     }
-
-    // Keep only the newest few per session; the feed merges across sessions.
-    scan.activities.sort_by_key(|a| std::cmp::Reverse(a.2));
-    scan.activities.truncate(12);
 
     Some(scan)
 }
@@ -601,9 +932,18 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    fn record(json: &str) -> Record {
+        serde_json::from_str(json).expect("valid test record")
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("acc-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
     #[test]
     fn parses_rfc3339_with_and_without_millis() {
-        // 2024-01-01T00:00:00Z is 1704067200000 ms.
         assert_eq!(
             parse_rfc3339_ms("2024-01-01T00:00:00Z"),
             Some(1_704_067_200_000)
@@ -612,7 +952,6 @@ mod tests {
             parse_rfc3339_ms("2024-01-01T00:00:00.250Z"),
             Some(1_704_067_200_250)
         );
-        // A leap day, to exercise the civil-date maths.
         assert_eq!(
             parse_rfc3339_ms("2024-02-29T12:00:00Z"),
             Some(1_709_208_000_000)
@@ -628,50 +967,168 @@ mod tests {
 
     #[test]
     fn accepts_second_and_millisecond_epochs() {
-        let secs: Record = serde_json::from_str(r#"{"ts": 1704067200}"#).unwrap();
-        let ms: Record = serde_json::from_str(r#"{"ts": 1704067200000}"#).unwrap();
-        assert_eq!(parse_ts(&secs), Some(1_704_067_200_000));
-        assert_eq!(parse_ts(&ms), Some(1_704_067_200_000));
+        assert_eq!(
+            parse_ts(&record(r#"{"ts": 1704067200}"#)),
+            Some(1_704_067_200_000)
+        );
+        assert_eq!(
+            parse_ts(&record(r#"{"ts": 1704067200000}"#)),
+            Some(1_704_067_200_000)
+        );
     }
 
     #[test]
     fn claude_weighs_every_token_bucket() {
-        let record: Record = serde_json::from_str(
+        let r = record(
             r#"{"type":"assistant","message":{"usage":{
                 "input_tokens":10,"output_tokens":5,
                 "cache_creation_input_tokens":2,"cache_read_input_tokens":3}}}"#,
-        )
-        .unwrap();
-        assert_eq!(ClaudeCode.weigh(&record, ""), 20);
+        );
+        assert_eq!(ClaudeCode.weigh(&r, ""), 20);
+    }
+
+    /// Regression: tool results arrive as `type: "user"` records and must not
+    /// be mistaken for prompts the user typed.
+    #[test]
+    fn claude_tool_results_are_not_prompts() {
+        let tool_result = record(
+            r#"{"type":"user","message":{"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"x","content":"ok"}]}}"#,
+        );
+        assert_eq!(ClaudeCode.step(&tool_result), None);
+
+        let typed =
+            record(r#"{"type":"user","message":{"role":"user","content":"Fix the flaky test"}}"#);
+        assert_eq!(ClaudeCode.step(&typed).unwrap().kind, "prompt");
+
+        let wrapper = record(
+            r#"{"type":"user","message":{"role":"user","content":"<command-name>/clear</command-name>"}}"#,
+        );
+        assert_eq!(ClaudeCode.step(&wrapper), None);
     }
 
     #[test]
-    fn claude_names_the_tool_a_turn_used() {
-        let edit: Record = serde_json::from_str(
-            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit"}]}}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            ClaudeCode.describe(&edit),
-            Some(("file-edited".into(), "Edited files".into()))
+    fn claude_tool_calls_become_named_steps() {
+        let edit = record(
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","name":"Edit","input":{"file_path":"/repo/src/invoice.ts"}}]}}"#,
         );
+        let step = ClaudeCode.step(&edit).unwrap();
+        assert_eq!(step.kind, "edit");
+        assert_eq!(step.label, "Edited invoice.ts");
 
-        let bash: Record = serde_json::from_str(
-            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}"#,
-        )
-        .unwrap();
+        let tests = record(
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}"#,
+        );
+        assert_eq!(ClaudeCode.step(&tests).unwrap().kind, "test");
+
+        let described = record(
+            r#"{"type":"assistant","message":{"content":[
+                {"type":"tool_use","name":"Bash","input":{"command":"git push","description":"Push the fix"}}]}}"#,
+        );
+        let step = ClaudeCode.step(&described).unwrap();
+        assert_eq!((step.kind, step.label.as_str()), ("git", "Push the fix"));
+
+        let todo = record(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TodoWrite","input":{}}]}}"#,
+        );
+        assert_eq!(ClaudeCode.step(&todo), None);
+    }
+
+    #[test]
+    fn claude_reads_the_model() {
+        let r = record(
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-4-5-20250929","content":[]}}"#,
+        );
         assert_eq!(
-            ClaudeCode.describe(&bash),
-            Some(("command-run".into(), "Ran a command".into()))
+            ClaudeCode.model(&r).as_deref(),
+            Some("claude-sonnet-4-5-20250929")
+        );
+    }
+
+    /// Regression: Codex wraps everything in `payload`; the old matcher looked
+    /// at the top level and never recognised a single Codex event.
+    #[test]
+    fn codex_payload_records_are_understood() {
+        let prompt = record(
+            r#"{"type":"response_item","payload":{"type":"message","role":"user",
+                "content":[{"type":"input_text","text":"Fix proration rounding"}]}}"#,
+        );
+        let step = Codex.step(&prompt).unwrap();
+        assert_eq!(
+            (step.kind, step.label.as_str()),
+            ("prompt", "Fix proration rounding")
+        );
+        assert_eq!(Codex.weigh(&prompt, ""), 1);
+
+        let injected = record(
+            r#"{"type":"response_item","payload":{"type":"message","role":"user",
+                "content":[{"type":"input_text","text":"<environment_context>...</environment_context>"}]}}"#,
+        );
+        assert_eq!(Codex.step(&injected), None);
+        assert_eq!(Codex.weigh(&injected, ""), 0);
+
+        let shell = record(
+            r#"{"type":"response_item","payload":{"type":"function_call","name":"shell",
+                "arguments":"{\"command\":[\"bash\",\"-lc\",\"cargo test --lib\"]}"}}"#,
+        );
+        let step = Codex.step(&shell).unwrap();
+        assert_eq!(step.kind, "test");
+        assert_eq!(step.label, "Ran cargo test --lib");
+        assert_eq!(Codex.weigh(&shell, ""), 0);
+
+        let patch = record(
+            r#"{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch",
+                "input":"*** Begin Patch\n*** Update File: src/billing/invoice.ts\n@@\n*** End Patch"}}"#,
+        );
+        let step = Codex.step(&patch).unwrap();
+        assert_eq!(
+            (step.kind, step.label.as_str()),
+            ("edit", "Edited invoice.ts")
         );
     }
 
     #[test]
-    fn codex_counts_user_turns_only() {
-        let turn: Record = serde_json::from_str(r#"{"type":"user"}"#).unwrap();
-        let reply: Record = serde_json::from_str(r#"{"type":"assistant"}"#).unwrap();
-        assert_eq!(Codex.weigh(&turn, "{\"type\":\"user\"}"), 1);
-        assert_eq!(Codex.weigh(&reply, "{\"type\":\"assistant\"}"), 0);
+    fn codex_reads_cwd_and_model_from_payload() {
+        let meta =
+            record(r#"{"type":"session_meta","payload":{"cwd":"/Users/dev/code/opspulse"}}"#);
+        assert_eq!(
+            Codex.cwd(&meta).as_deref(),
+            Some("/Users/dev/code/opspulse")
+        );
+        let ctx = record(r#"{"type":"turn_context","payload":{"model":"gpt-5-codex"}}"#);
+        assert_eq!(Codex.model(&ctx).as_deref(), Some("gpt-5-codex"));
+    }
+
+    #[test]
+    fn runs_of_reads_merge_and_carry_durations() {
+        let s = |kind, label: &str, file: Option<&str>| Step {
+            kind,
+            label: label.into(),
+            file: file.map(str::to_string),
+        };
+        let steps = vec![
+            (s("read", "Read a.ts", Some("a.ts")), 1_000),
+            (s("read", "Read b.ts", Some("b.ts")), 2_000),
+            (s("read", "Read c.ts", Some("c.ts")), 3_000),
+            (s("edit", "Edited a.ts", Some("a.ts")), 5_000),
+            (s("test", "Ran npm test", None), 9_000),
+        ];
+        let merged = merge_runs(&steps);
+        assert_eq!(merged.len(), 3);
+        assert_eq!(merged[0].0.label, "Read 3 files");
+        assert_eq!(merged[0].1, 1_000);
+        assert_eq!(merged[0].2, Some(4_000));
+        assert_eq!(merged[1].0.label, "Edited a.ts");
+        assert_eq!(merged[2].2, None, "the latest step is still open");
+        assert_eq!(count_files(&steps), 1);
+    }
+
+    #[test]
+    fn truncation_respects_character_boundaries() {
+        assert_eq!(truncate("héllo wörld", 6), "héllo…");
+        assert_eq!(truncate("short", 10), "short");
     }
 
     #[test]
@@ -682,42 +1139,44 @@ mod tests {
         assert!(state.detail.is_some());
     }
 
-    /// The core guarantee: a transcript on disk becomes a session with the
-    /// right project, timestamps and usage, reading head and tail only.
+    /// End to end: a transcript on disk becomes a session with the right
+    /// project, model, steps and usage, reading head and tail only.
     #[test]
     fn scans_a_claude_transcript_end_to_end() {
-        let dir = std::env::temp_dir().join(format!("acc-test-{}", std::process::id()));
+        let dir = temp_dir("claude");
         let project_dir = dir.join("-Users-dev-code-motionlib");
         std::fs::create_dir_all(&project_dir).unwrap();
         let path = project_dir.join("abc-123.jsonl");
 
         let mut f = std::fs::File::create(&path).unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"user","sessionId":"abc-123","cwd":"/Users/dev/code/motionlib","timestamp":"2024-01-01T10:00:00Z"}}"#
-        )
-        .unwrap();
-        writeln!(
-            f,
-            r#"{{"type":"assistant","timestamp":"2024-01-01T10:05:00Z","message":{{"usage":{{"input_tokens":100,"output_tokens":50}},"content":[{{"type":"tool_use","name":"Edit"}}]}}}}"#
-        )
-        .unwrap();
+        for line in [
+            r#"{"type":"user","sessionId":"abc-123","cwd":"/Users/dev/code/motionlib","timestamp":"2024-01-01T10:00:00Z","message":{"role":"user","content":"Add spring presets"}}"#,
+            r#"{"type":"assistant","timestamp":"2024-01-01T10:00:05Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":100,"output_tokens":50},"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/a.ts"}}]}}"#,
+            r#"{"type":"user","timestamp":"2024-01-01T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","content":"..."}]}}"#,
+            r#"{"type":"assistant","timestamp":"2024-01-01T10:05:00Z","message":{"usage":{"input_tokens":10,"output_tokens":5},"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/spring.ts"}}]}}"#,
+        ] {
+            writeln!(f, "{line}").unwrap();
+        }
         drop(f);
 
-        // A window starting before the records so both count toward usage.
         let scan = scan_session(&path, &ClaudeCode, 0).expect("scan should succeed");
-
         assert_eq!(scan.session_id.as_deref(), Some("abc-123"));
         assert_eq!(scan.cwd.as_deref(), Some("/Users/dev/code/motionlib"));
+        assert_eq!(scan.model.as_deref(), Some("claude-sonnet-4-5"));
         assert_eq!(scan.first_ts, parse_rfc3339_ms("2024-01-01T10:00:00Z"));
         assert_eq!(scan.last_ts, parse_rfc3339_ms("2024-01-01T10:05:00Z"));
-        assert_eq!(scan.weighted, 150);
-        assert_eq!(scan.last_message.as_deref(), Some("Edited files"));
+        assert_eq!(scan.weighted, 165);
+
+        let kinds: Vec<&str> = scan.steps.iter().map(|(s, _)| s.kind).collect();
+        assert_eq!(
+            kinds,
+            ["prompt", "read", "edit"],
+            "tool results are not steps"
+        );
 
         // Records outside the window must not count against the limit.
-        let future_window = now_ms() + 86_400_000;
-        let scan2 = scan_session(&path, &ClaudeCode, future_window).unwrap();
-        assert_eq!(scan2.weighted, 0);
+        let later = scan_session(&path, &ClaudeCode, now_ms() + 86_400_000).unwrap();
+        assert_eq!(later.weighted, 0);
 
         std::fs::remove_dir_all(&dir).ok();
     }

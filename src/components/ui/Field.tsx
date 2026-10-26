@@ -18,21 +18,22 @@ export function Field({
   return (
     <div
       className={cn(
-        'px-3.5 py-2',
-        stacked ? 'space-y-1.5' : 'flex items-center justify-between gap-3',
+        'px-4 py-2.5',
+        stacked ? 'space-y-2' : 'flex items-center justify-between gap-4',
       )}
     >
       <div className="min-w-0">
         <label htmlFor={htmlFor} className="t-body block text-text-1">
           {label}
         </label>
-        {hint && <p className="t-meta mt-0.5 text-text-3">{hint}</p>}
+        {hint && <p className="t-caption mt-0.5 text-text-2">{hint}</p>}
       </div>
       <div className={cn(stacked ? 'w-full' : 'shrink-0')}>{children}</div>
     </div>
   );
 }
 
+/** On is the brightest thing on the row, like the primary action. */
 export function Toggle({
   id,
   checked,
@@ -53,15 +54,18 @@ export function Toggle({
       aria-label={label}
       onClick={() => onChange(!checked)}
       className={cn(
-        'relative h-[16px] w-[28px] rounded-full transition-colors duration-[180ms]',
-        'inset-ring',
-        checked ? 'bg-accent inset-ring-accent' : 'bg-surface-3 inset-ring-rule-strong',
+        'relative h-5 w-9 shrink-0 rounded-full transition-colors duration-200 ease-out',
+        checked ? 'bg-primary' : 'bg-rule-strong',
       )}
     >
       <span
         className={cn(
-          'absolute top-[2px] size-3 rounded-full bg-white transition-[left] duration-[180ms] ease-out-quint',
-          checked ? 'left-[14px]' : 'left-[2px]',
+          // Anchored at left-0: an unanchored absolute child of a <button>
+          // sits at its centered static position, and the translate then
+          // pushes the knob out of the track.
+          'absolute top-0.5 left-0 size-4 rounded-full shadow-[0_1px_2px_rgb(0_0_0/0.3)]',
+          'transition-[translate,background-color] duration-200 ease-out-quint',
+          checked ? 'translate-x-[18px] bg-primary-fg' : 'translate-x-0.5 bg-text-1',
         )}
       />
     </button>
@@ -80,11 +84,7 @@ export function Segmented<T extends string>({
   label: string;
 }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="inline-flex rounded-md bg-surface-inset p-[2px] inset-ring inset-ring-rule"
-    >
+    <div role="radiogroup" aria-label={label} className="inline-flex rounded-full bg-inset p-0.5">
       {options.map((option) => {
         const selected = option.value === value;
         return (
@@ -95,10 +95,10 @@ export function Segmented<T extends string>({
             aria-checked={selected}
             onClick={() => onChange(option.value)}
             className={cn(
-              't-label rounded-[3px] px-2 py-[3px] transition-colors duration-[90ms]',
+              't-label h-7 rounded-full px-3 transition-colors duration-100',
               selected
-                ? 'bg-surface-3 text-text-1 shadow-raised'
-                : 'text-text-3 hover:text-text-2',
+                ? 'bg-card-hover text-text-1 shadow-[0_1px_2px_rgb(0_0_0/0.25)]'
+                : 'text-text-2 hover:text-text-1',
             )}
           >
             {option.label}
@@ -129,7 +129,7 @@ export function Slider({
   label: string;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-3">
       <input
         id={id}
         type="range"
@@ -139,9 +139,9 @@ export function Slider({
         value={value}
         aria-label={label}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1 w-[104px] cursor-pointer appearance-none rounded-full bg-surface-inset accent-accent inset-ring inset-ring-rule"
+        className="h-1 w-[120px] cursor-pointer appearance-none rounded-full bg-rule-strong accent-text-1"
       />
-      <span className="t-mono w-[42px] shrink-0 text-right text-text-2">
+      <span className="t-mono w-[48px] shrink-0 text-right text-text-1">
         {value}
         {unit}
       </span>

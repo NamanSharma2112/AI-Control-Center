@@ -31,7 +31,7 @@ export function ProvenanceTag({
   return (
     <span
       title={TITLE[source]}
-      className={cn('t-meta text-text-3 tabular-nums', className)}
+      className={cn('t-caption text-text-3', className)}
     >
       {WORD[source]}
     </span>

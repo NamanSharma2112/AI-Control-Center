@@ -4,6 +4,8 @@ import type {
   Limit,
   ProviderId,
   Session,
+  SessionStep,
+  StepKind,
   Usage,
 } from '@/types/domain';
 import { DAY, HOUR, MINUTE, formatResetLabel } from '@/lib/time';
@@ -36,6 +38,9 @@ export interface MockProfile {
     lastActivityMsAgo: number;
     currentActivity: string;
     stoppable?: boolean;
+    model: string;
+    /** Oldest first. A null duration is the step still in progress. */
+    steps: Array<{ kind: StepKind; label: string; ms: number | null }>;
   }>;
   activities: Array<{
     type: ActivityType;
@@ -58,17 +63,33 @@ export const codexProfile: MockProfile = {
       projectPath: '/Users/dev/code/opspulse',
       status: 'running',
       startedMsAgo: 3 * MINUTE + 21_000,
-      lastActivityMsAgo: 9_000,
-      currentActivity: 'Running tests',
+      lastActivityMsAgo: 2_000,
+      currentActivity: 'Running tests 10 of 12',
       stoppable: true,
+      model: 'gpt-5-codex',
+      steps: [
+        { kind: 'prompt', label: 'Fix proration rounding on plan changes', ms: 600 },
+        { kind: 'read', label: 'Read 12 files', ms: 1_900 },
+        { kind: 'search', label: 'Found 4 call sites', ms: 1_500 },
+        { kind: 'edit', label: 'Edited src/billing/invoice.ts', ms: 2_500 },
+        { kind: 'edit', label: 'Updated 5 test files', ms: 1_900 },
+        { kind: 'test', label: 'Running tests 10 of 12', ms: null },
+      ],
     },
     {
       project: 'infra-terraform',
       projectPath: '/Users/dev/code/infra-terraform',
       status: 'waiting',
       startedMsAgo: 26 * MINUTE,
-      lastActivityMsAgo: 11 * MINUTE,
-      currentActivity: 'Waiting for review',
+      lastActivityMsAgo: 4 * MINUTE,
+      currentActivity: 'Needs your approval to run terraform apply',
+      model: 'gpt-5-codex',
+      steps: [
+        { kind: 'read', label: 'Read 7 modules', ms: 3_100 },
+        { kind: 'edit', label: 'Edited modules/vpc/main.tf', ms: 41_000 },
+        { kind: 'command', label: 'Ran terraform plan', ms: 18_400 },
+        { kind: 'waiting', label: 'Needs your approval to run terraform apply', ms: null },
+      ],
     },
   ],
   activities: [
@@ -87,10 +108,10 @@ export const codexProfile: MockProfile = {
 
 export const claudeCodeProfile: MockProfile = {
   providerId: 'claude-code',
-  usedPct: 54,
+  usedPct: 70,
   unit: 'tokens',
   cap: 2_000_000,
-  resetIn: 1 * HOUR + 24 * MINUTE,
+  resetIn: 1 * HOUR + 50 * MINUTE,
   resetWindow: 'session',
   sessions: [
     {
@@ -98,9 +119,33 @@ export const claudeCodeProfile: MockProfile = {
       projectPath: '/Users/dev/code/motionlib',
       status: 'running',
       startedMsAgo: 7 * MINUTE + 14_000,
-      lastActivityMsAgo: 4_000,
-      currentActivity: 'Editing animation.ts',
+      lastActivityMsAgo: 3_000,
+      currentActivity: 'Editing src/animation.ts',
       stoppable: true,
+      model: 'claude-sonnet-4-5-20250929',
+      steps: [
+        { kind: 'prompt', label: 'Add interruptible spring presets', ms: 500 },
+        { kind: 'read', label: 'Read 9 files', ms: 2_200 },
+        { kind: 'search', label: 'Found 3 easing call sites', ms: 1_400 },
+        { kind: 'edit', label: 'Edited src/spring.ts', ms: 12_600 },
+        { kind: 'test', label: 'Passed 31 of 31 tests', ms: 4_800 },
+        { kind: 'edit', label: 'Editing src/animation.ts', ms: null },
+      ],
+    },
+    {
+      project: 'open-source',
+      projectPath: '/Users/dev/code/open-source',
+      status: 'completed',
+      startedMsAgo: 1 * HOUR + 31 * MINUTE,
+      lastActivityMsAgo: 1 * HOUR + 12 * MINUTE,
+      currentActivity: 'Pushed docs/rewrite-guides',
+      model: 'claude-sonnet-4-5-20250929',
+      steps: [
+        { kind: 'read', label: 'Read 14 guides', ms: 3_400 },
+        { kind: 'edit', label: 'Rewrote 6 guides', ms: 9 * MINUTE },
+        { kind: 'test', label: 'Passed link check', ms: 6_100 },
+        { kind: 'git', label: 'Pushed docs/rewrite-guides', ms: 1_400 },
+      ],
     },
   ],
   activities: [
@@ -143,18 +188,62 @@ export function buildLimits(p: MockProfile): Limit[] {
 }
 
 export function buildSessions(p: MockProfile): Session[] {
-  return p.sessions.map((s, i) => ({
-    id: `${p.providerId}-mock-session-${i}`,
-    providerId: p.providerId,
-    project: s.project,
-    projectPath: s.projectPath,
-    status: s.status,
-    startedAt: t0 - s.startedMsAgo,
-    lastActivityAt: t0 - s.lastActivityMsAgo,
-    currentActivity: s.currentActivity,
-    source: 'local' as const,
-    ...(s.stoppable ? { stoppable: true } : {}),
-  }));
+  return p.sessions.map((s, i) => {
+    const id = `${p.providerId}-mock-session-${i}`;
+    return {
+      id,
+      providerId: p.providerId,
+      project: s.project,
+      projectPath: s.projectPath,
+      status: s.status,
+      startedAt: t0 - s.startedMsAgo,
+      lastActivityAt: t0 - s.lastActivityMsAgo,
+      currentActivity: s.currentActivity,
+      source: 'local' as const,
+      model: s.model,
+      steps: buildSteps(id, s.steps, t0 - s.lastActivityMsAgo),
+      filesChanged: countEdits(s.steps),
+      ...(s.stoppable ? { stoppable: true } : {}),
+    };
+  });
+}
+
+/**
+ * Lays steps out backwards from the session's last activity, so the in-progress
+ * step began exactly when the session last moved and the log reads in order.
+ */
+function buildSteps(
+  sessionId: string,
+  steps: MockProfile['sessions'][number]['steps'],
+  lastActivityAt: number,
+): SessionStep[] {
+  const out: SessionStep[] = [];
+  let cursor = lastActivityAt;
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    const step = steps[i];
+    // The open step started at the last activity; finished ones end where
+    // the following step began.
+    const startedAt = step.ms === null ? cursor : cursor - step.ms;
+    out.unshift({
+      id: `${sessionId}-step-${i}`,
+      kind: step.kind,
+      label: step.label,
+      startedAt,
+      durationMs: step.ms,
+    });
+    cursor = startedAt - 400;
+  }
+  return out;
+}
+
+function countEdits(steps: MockProfile['sessions'][number]['steps']): number {
+  let files = 0;
+  for (const step of steps) {
+    if (step.kind !== 'edit') continue;
+    const n = /(\d+)/.exec(step.label);
+    files += n ? Number(n[1]) : 1;
+  }
+  return files;
 }
 
 export function buildActivities(p: MockProfile): Activity[] {

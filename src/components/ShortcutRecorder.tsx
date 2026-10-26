@@ -83,17 +83,17 @@ export function ShortcutRecorder({
       onBlur={() => setRecording(false)}
       aria-label="Change the toggle shortcut"
       className={cn(
-        'flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5',
-        'transition-colors duration-[90ms] inset-ring',
+        'flex h-9 w-full items-center justify-between gap-2 rounded-md border px-3',
+        'transition-colors duration-100',
         recording
-          ? 'bg-accent-well text-accent-text inset-ring-accent'
-          : 'bg-surface-inset text-text-1 inset-ring-rule hover:bg-surface-2',
+          ? 'border-focus bg-inset text-text-1'
+          : 'border-row-border bg-inset text-text-1 hover:border-rule-strong',
       )}
     >
       <span className="t-mono">
         {recording ? 'Press a combination…' : formatAccelerator(value)}
       </span>
-      <span className="t-meta text-text-3">{recording ? 'Esc to cancel' : 'Change'}</span>
+      <span className="t-caption text-text-2">{recording ? 'Esc to cancel' : 'Change'}</span>
     </button>
   );
 }

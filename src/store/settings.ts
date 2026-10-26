@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS: Settings = {
   edge: 'right',
   edgeSensitivity: 3,
   edgeDwellMs: 120,
-  panelWidth: 380,
+  panelWidth: 880,
   motionIntensity: 'full',
   shortcut: 'CommandOrControl+Shift+Space',
   theme: 'system',
@@ -71,6 +71,21 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 const WEB_STORAGE_KEY = 'acc.settings';
+
+/** The console layout's width range. Narrower and the two columns collide. */
+export const PANEL_WIDTH = { min: 760, max: 1040, default: 880 } as const;
+
+/**
+ * Settings saved by an older build may hold a width from the narrow strip
+ * layout; bring anything out of range back to a value the layout can use.
+ */
+function migrate(settings: Settings): Settings {
+  const { panelWidth } = settings;
+  if (panelWidth < PANEL_WIDTH.min || panelWidth > PANEL_WIDTH.max) {
+    return { ...settings, panelWidth: PANEL_WIDTH.default };
+  }
+  return settings;
+}
 
 interface SettingsStore {
   settings: Settings;
@@ -97,11 +112,13 @@ async function persist(settings: Settings): Promise<void> {
 async function restore(): Promise<Settings> {
   if (isTauri()) {
     const stored = await invokeSafe<Partial<Settings> | null>('load_settings', undefined, null);
-    return stored ? { ...DEFAULT_SETTINGS, ...stored } : DEFAULT_SETTINGS;
+    return stored ? migrate({ ...DEFAULT_SETTINGS, ...stored }) : DEFAULT_SETTINGS;
   }
   try {
     const raw = localStorage.getItem(WEB_STORAGE_KEY);
-    return raw ? { ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) } : DEFAULT_SETTINGS;
+    return raw
+      ? migrate({ ...DEFAULT_SETTINGS, ...(JSON.parse(raw) as Partial<Settings>) })
+      : DEFAULT_SETTINGS;
   } catch {
     return DEFAULT_SETTINGS;
   }

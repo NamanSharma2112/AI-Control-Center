@@ -3,12 +3,13 @@ import type { ProviderStatus, SessionStatus } from '@/types/domain';
 
 export type Tone = 'ok' | 'idle' | 'warn' | 'error' | 'accent';
 
+
 const TONE_CLASS: Record<Tone, string> = {
   ok: 'bg-ok',
   idle: 'bg-idle',
   warn: 'bg-warn',
   error: 'bg-error',
-  accent: 'bg-accent',
+  accent: 'bg-focus',
 };
 
 export const PROVIDER_TONE: Record<ProviderStatus, Tone> = {

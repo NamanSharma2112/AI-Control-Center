@@ -6,33 +6,36 @@
 /* Map the design tokens into Tailwind's theme so utilities speak the
    system's language and nothing in a component reaches for a raw hex. */
 @theme inline {
-  --color-surface-0: var(--surface-0);
-  --color-surface-1: var(--surface-1);
-  --color-surface-2: var(--surface-2);
-  --color-surface-3: var(--surface-3);
-  --color-surface-inset: var(--surface-inset);
+  --color-panel: var(--surface-panel);
+  --color-card: var(--surface-card);
+  --color-card-hover: var(--surface-card-hover);
+  --color-row: var(--surface-row);
+  --color-row-selected: var(--surface-row-selected);
+  --color-inset: var(--surface-inset);
 
   --color-rule: var(--rule);
   --color-rule-strong: var(--rule-strong);
+  --color-grid: var(--grid);
+  --color-row-border: var(--row-border);
+  --color-row-border-selected: var(--row-border-selected);
 
   --color-text-1: var(--text-1);
   --color-text-2: var(--text-2);
   --color-text-3: var(--text-3);
 
-  --color-accent: var(--accent);
-  --color-accent-text: var(--accent-text);
-  --color-accent-well: var(--accent-well);
+  --color-primary: var(--primary-bg);
+  --color-primary-hover: var(--primary-bg-hover);
+  --color-primary-fg: var(--primary-fg);
+  --color-focus: var(--focus);
+
+  --color-claude: var(--cat-claude);
+  --color-codex: var(--cat-codex);
+  --color-agents: var(--cat-agents);
 
   --color-ok: var(--ok);
-  --color-ok-well: var(--ok-well);
-  --color-idle: var(--idle);
-  --color-idle-well: var(--idle-well);
   --color-warn: var(--warn);
-  --color-warn-well: var(--warn-well);
   --color-error: var(--error);
-  --color-error-well: var(--error-well);
-
-  --color-tick: var(--tick);
+  --color-idle: var(--idle);
 
   --font-ui: var(--font-ui);
   --font-mono: var(--font-mono);
@@ -42,66 +45,130 @@
   --radius-lg: var(--r-lg);
   --radius-panel: var(--r-panel);
 
-  --shadow-raised: var(--shadow-raised);
-  --shadow-float: var(--shadow-float);
-
   --ease-out-expo: var(--ease-out-expo);
   --ease-out-quint: var(--ease-out-quint);
 }
 
 /* ------------------------------------------------------------
-   Type roles — the six steps from DESIGN.md, as real classes so
-   a component never hand-assembles a size/weight/tracking triple.
+   Type roles. Sentence case throughout, like the reference: the
+   hierarchy comes from size and weight, never from shouting.
    ------------------------------------------------------------ */
 
-@utility t-display {
-  font-size: var(--t-display-size);
-  line-height: var(--t-display-line);
-  font-weight: 560;
-  letter-spacing: -0.02em;
+/* The big figure on a metric card. */
+@utility t-figure {
+  font-size: 2.125rem; /* 34px */
+  line-height: 2.375rem;
+  font-weight: 460;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
 }
 
-@utility t-value {
-  font-size: var(--t-value-size);
-  line-height: var(--t-value-line);
-  font-weight: 540;
-  letter-spacing: -0.015em;
-}
-
-@utility t-body {
-  font-size: var(--t-body-size);
-  line-height: var(--t-body-line);
-  font-weight: 450;
-  letter-spacing: -0.005em;
-}
-
-@utility t-label {
-  font-size: var(--t-label-size);
-  line-height: var(--t-label-line);
-  font-weight: 520;
-  letter-spacing: 0.01em;
-}
-
-@utility t-section {
-  font-size: var(--t-section-size);
-  line-height: var(--t-section-line);
+/* Panel title: "AI Control Center". */
+@utility t-title {
+  font-size: 1.0625rem; /* 17px */
+  line-height: 1.375rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  letter-spacing: -0.012em;
 }
 
-@utility t-meta {
-  font-size: var(--t-meta-size);
-  line-height: var(--t-meta-line);
-  font-weight: 450;
+/* Option-row title and the strong values inside running text. */
+@utility t-strong {
+  font-size: 0.875rem; /* 14px */
+  line-height: 1.25rem;
+  font-weight: 560;
+  letter-spacing: -0.008em;
+}
+
+/* Running text: the forecast, card sub-lines, row details. */
+@utility t-body {
+  font-size: 0.8125rem; /* 13px */
+  line-height: 1.25rem;
+  font-weight: 440;
+  letter-spacing: -0.004em;
+}
+
+/* Card labels ("Claude Code"), legend items, tab labels. */
+@utility t-label {
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+  font-weight: 540;
+  letter-spacing: -0.004em;
+}
+
+/* Chart axes, captions, provenance marks. */
+@utility t-caption {
+  font-size: 0.6875rem; /* 11px */
+  line-height: 0.875rem;
+  font-weight: 460;
   letter-spacing: 0.005em;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Elapsed timers and paths: measurement, so mono. */
 @utility t-mono {
   font-family: var(--font-mono);
-  font-size: var(--t-meta-size);
-  line-height: var(--t-meta-line);
-  font-weight: 450;
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 460;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+}
+
+/* The stacked bar reveals left to right on open. clip-path is composited, so
+   it never triggers layout. */
+@keyframes acc-reveal {
+  from {
+    clip-path: inset(0 100% 0 0 round 999px);
+  }
+  to {
+    clip-path: inset(0 0 0 0 round 999px);
+  }
+}
+
+/* An in-progress step: a soft highlight sweeps across its segment. It is the
+   one continuous animation in the product, runs only while an agent is
+   actually working, and is transform-only. */
+@keyframes acc-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+/* The running agent's avatar ring. */
+@keyframes acc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .acc-motion-loop {
+    animation: none !important;
+  }
+}
+
+/* Range inputs: drawn explicitly so WebView2, WKWebView and WebKitGTK agree. */
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--text-1);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+  transition: transform 100ms ease-out;
+}
+input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+}
+input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--text-1);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
 }

@@ -64,8 +64,17 @@ export function panelVariants(
   edge: EdgeSide,
   intensity: MotionIntensity,
   source: SummonSource = 'edge',
+  /** px from resting place to fully off screen: panel width plus its margin. */
+  distance?: number,
 ): Variants {
-  const offscreen = edge === 'right' ? '100%' : '-100%';
+  const off = distance ?? 0;
+  const offscreen = distance
+    ? edge === 'right'
+      ? off
+      : -off
+    : edge === 'right'
+      ? '100%'
+      : '-100%';
   const exitNudge = edge === 'right' ? 16 : -16;
 
   // A keyboard-initiated toggle is a high-frequency action: it gets no

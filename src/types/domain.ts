@@ -79,6 +79,29 @@ export interface Limit {
   source: DataSource;
 }
 
+/** What kind of thing an agent step was. Decides its icon, nothing else. */
+export type StepKind =
+  | 'prompt'
+  | 'read'
+  | 'search'
+  | 'edit'
+  | 'test'
+  | 'command'
+  | 'git'
+  | 'reply'
+  | 'waiting';
+
+/** One thing an agent did, in order, as the agent status card lists it. */
+export interface SessionStep {
+  id: string;
+  kind: StepKind;
+  /** Past tense once finished ("Read 12 files"), present while running. */
+  label: string;
+  startedAt: number;
+  /** ms the step took, or null while it is still in progress. */
+  durationMs: number | null;
+}
+
 export interface Session {
   id: string;
   providerId: ProviderId;
@@ -96,6 +119,12 @@ export interface Session {
   source: DataSource;
   /** Set when the app can actually stop this local task. */
   stoppable?: boolean;
+  /** Model the session ran on, as the CLI recorded it, when it recorded one. */
+  model?: string;
+  /** Recent steps, oldest first. Bounded; this is a glance, not a transcript. */
+  steps: SessionStep[];
+  /** Files the session wrote, when that can be counted from its steps. */
+  filesChanged?: number;
 }
 
 export interface Activity {

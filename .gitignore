@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+*.local
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# Environment & secrets — never commit these
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+.credentials
+
+# Editors
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# Local tooling: design/animation skills are developer tooling installed per
+# machine, not product source. They are also where a licence token could end
+# up, so they never enter history.
+.impeccable/
+.animations/
+.skills/
+.agents/
+.claude/
+skills-lock.json
+
+# Local database artifacts
+*.sqlite
+*.sqlite3
+*.db

@@ -1,0 +1,107 @@
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/jetbrains-mono';
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Map the design tokens into Tailwind's theme so utilities speak the
+   system's language and nothing in a component reaches for a raw hex. */
+@theme inline {
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-surface-inset: var(--surface-inset);
+
+  --color-rule: var(--rule);
+  --color-rule-strong: var(--rule-strong);
+
+  --color-text-1: var(--text-1);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-accent-well: var(--accent-well);
+
+  --color-ok: var(--ok);
+  --color-ok-well: var(--ok-well);
+  --color-idle: var(--idle);
+  --color-idle-well: var(--idle-well);
+  --color-warn: var(--warn);
+  --color-warn-well: var(--warn-well);
+  --color-error: var(--error);
+  --color-error-well: var(--error-well);
+
+  --color-tick: var(--tick);
+
+  --font-ui: var(--font-ui);
+  --font-mono: var(--font-mono);
+
+  --radius-sm: var(--r-sm);
+  --radius-md: var(--r-md);
+  --radius-lg: var(--r-lg);
+  --radius-panel: var(--r-panel);
+
+  --shadow-raised: var(--shadow-raised);
+  --shadow-float: var(--shadow-float);
+
+  --ease-out-expo: var(--ease-out-expo);
+  --ease-out-quint: var(--ease-out-quint);
+}
+
+/* ------------------------------------------------------------
+   Type roles — the six steps from DESIGN.md, as real classes so
+   a component never hand-assembles a size/weight/tracking triple.
+   ------------------------------------------------------------ */
+
+@utility t-display {
+  font-size: var(--t-display-size);
+  line-height: var(--t-display-line);
+  font-weight: 560;
+  letter-spacing: -0.02em;
+}
+
+@utility t-value {
+  font-size: var(--t-value-size);
+  line-height: var(--t-value-line);
+  font-weight: 540;
+  letter-spacing: -0.015em;
+}
+
+@utility t-body {
+  font-size: var(--t-body-size);
+  line-height: var(--t-body-line);
+  font-weight: 450;
+  letter-spacing: -0.005em;
+}
+
+@utility t-label {
+  font-size: var(--t-label-size);
+  line-height: var(--t-label-line);
+  font-weight: 520;
+  letter-spacing: 0.01em;
+}
+
+@utility t-section {
+  font-size: var(--t-section-size);
+  line-height: var(--t-section-line);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@utility t-meta {
+  font-size: var(--t-meta-size);
+  line-height: var(--t-meta-line);
+  font-weight: 450;
+  letter-spacing: 0.005em;
+}
+
+@utility t-mono {
+  font-family: var(--font-mono);
+  font-size: var(--t-meta-size);
+  line-height: var(--t-meta-line);
+  font-weight: 450;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}

@@ -1,5 +1,8 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
+import { motion } from 'motion/react';
 import type { Activity, ActivityType } from '@/types/domain';
+import { rowVariants } from '@/lib/motion';
+import type { MotionIntensity } from '@/store/settings';
 import { PROVIDER_NAMES } from '@/providers/registry';
 import { formatClock } from '@/lib/time';
 import { cn } from '@/lib/cn';
@@ -30,12 +33,16 @@ const TONE_CLASS = {
  */
 export const Timeline = memo(function Timeline({
   activities,
+  intensity,
   max = 8,
 }: {
   activities: Activity[];
+  intensity: MotionIntensity;
   max?: number;
 }) {
   const shown = activities.slice(0, max);
+  const variants = useMemo(() => rowVariants(intensity), [intensity]);
+  const animate = intensity === 'full';
 
   if (shown.length === 0) {
     return (
@@ -50,8 +57,15 @@ export const Timeline = memo(function Timeline({
         aria-hidden="true"
         className="absolute top-1 bottom-2 left-[3.55rem] w-px bg-rule"
       />
-      {shown.map((activity) => (
-        <li key={activity.id} className="relative flex items-baseline gap-2 py-[3px]">
+      {shown.map((activity, index) => (
+        <motion.li
+          key={activity.id}
+          variants={variants}
+          custom={index}
+          initial={animate ? 'hidden' : false}
+          animate="visible"
+          className="relative flex items-baseline gap-2 py-[3px]"
+        >
           <time
             dateTime={new Date(activity.timestamp).toISOString()}
             className="t-mono w-[3.1rem] shrink-0 whitespace-nowrap text-right text-text-3"
@@ -74,7 +88,7 @@ export const Timeline = memo(function Timeline({
           <span className="t-meta shrink-0 text-text-3">
             {PROVIDER_NAMES[activity.providerId].split(' ')[0]}
           </span>
-        </li>
+        </motion.li>
       ))}
     </ol>
   );

@@ -1,22 +1,23 @@
+//! Reading local provider state.
+//!
+//! Both supported CLIs keep their own session history on disk, in the user's
+//! home directory, as newline-delimited JSON. We read those files and nothing
+//! else: no network calls, no browser storage, no authenticated pages. The
+//! files belong to the user and are already on their machine.
+//!
+//! Everything here is bounded on purpose. We stat before we read, skip
+//! anything older than the window, cap how many sessions we open, and read a
+//! tail rather than a whole file — a chatty agent can leave a multi-megabyte
+//! transcript, and the panel must open instantly regardless.
+
+//! Never open more than this many session files in one read.
+
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Reading local provider state.
-///
-/// Both supported CLIs keep their own session history on disk, in the user's
-/// home directory, as newline-delimited JSON. We read those files and nothing
-/// else: no network calls, no browser storage, no authenticated pages. The
-/// files belong to the user and are already on their machine.
-///
-/// Everything here is bounded on purpose. We stat before we read, skip
-/// anything older than the window, cap how many sessions we open, and read a
-/// tail rather than a whole file — a chatty agent can leave a multi-megabyte
-/// transcript, and the panel must open instantly regardless.
-
-/// Never open more than this many session files in one read.
 const MAX_SESSION_FILES: usize = 24;
 /// Ignore sessions untouched for longer than this.
 const SESSION_MAX_AGE_MS: i64 = 3 * 86_400_000;
@@ -321,15 +322,13 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
             status: "active".to_string(),
             started_at: scan.first_ts.unwrap_or(modified),
             last_activity_at,
-            current_activity: scan
-                .last_message
-                .unwrap_or_else(|| "Working".to_string()),
+            current_activity: scan.last_message.unwrap_or_else(|| "Working".to_string()),
             event_count: scan.event_count,
         });
     }
 
-    sessions.sort_by(|a, b| b.last_activity_at.cmp(&a.last_activity_at));
-    activities.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
+    activities.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
     activities.truncate(MAX_ACTIVITIES);
 
     let usage = Some(LocalUsageDto {
@@ -451,7 +450,7 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
     }
 
     // Keep only the newest few per session; the feed merges across sessions.
-    scan.activities.sort_by(|a, b| b.2.cmp(&a.2));
+    scan.activities.sort_by_key(|a| std::cmp::Reverse(a.2));
     scan.activities.truncate(12);
 
     Some(scan)
@@ -503,7 +502,7 @@ fn collect_recent_jsonl(dir: &Path, now: i64) -> Vec<(PathBuf, i64)> {
         }
     }
 
-    found.sort_by(|a, b| b.1.cmp(&a.1));
+    found.sort_by_key(|f| std::cmp::Reverse(f.1));
     found.truncate(MAX_SESSION_FILES);
     found
 }
@@ -605,13 +604,19 @@ mod tests {
     #[test]
     fn parses_rfc3339_with_and_without_millis() {
         // 2024-01-01T00:00:00Z is 1704067200000 ms.
-        assert_eq!(parse_rfc3339_ms("2024-01-01T00:00:00Z"), Some(1_704_067_200_000));
+        assert_eq!(
+            parse_rfc3339_ms("2024-01-01T00:00:00Z"),
+            Some(1_704_067_200_000)
+        );
         assert_eq!(
             parse_rfc3339_ms("2024-01-01T00:00:00.250Z"),
             Some(1_704_067_200_250)
         );
         // A leap day, to exercise the civil-date maths.
-        assert_eq!(parse_rfc3339_ms("2024-02-29T12:00:00Z"), Some(1_709_208_000_000));
+        assert_eq!(
+            parse_rfc3339_ms("2024-02-29T12:00:00Z"),
+            Some(1_709_208_000_000)
+        );
         assert_eq!(parse_rfc3339_ms("nope"), None);
     }
 

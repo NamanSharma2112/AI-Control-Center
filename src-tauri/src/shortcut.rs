@@ -31,7 +31,7 @@ pub fn rebind(app: &AppHandle, accelerator: &str) -> Result<(), String> {
             }
             let state = app.state::<Arc<AppState>>();
             let (edge, width) = state.edge_and_width();
-            let _ = window::toggle(app, &edge, width);
+            let _ = window::toggle(app, &edge, width, window::Summon::Shortcut);
         })
         .map_err(|e| format!("Could not register {accelerator}: {e}"))?;
 

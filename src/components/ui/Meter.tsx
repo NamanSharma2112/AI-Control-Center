@@ -1,6 +1,5 @@
-import { useMemo } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/cn';
-import { useAnimatedNumber } from '@/hooks/useAnimatedNumber';
 import type { Tone } from './StatusDot';
 
 const FILL_CLASS: Record<Tone, string> = {
@@ -28,7 +27,7 @@ interface MeterProps {
  * left. The ticks are the point — they turn a progress bar into a scale you
  * can read a value off without the number, which is what an instrument does.
  */
-export function Meter({
+export const Meter = memo(function Meter({
   value,
   tone,
   animate = true,
@@ -36,7 +35,17 @@ export function Meter({
   className,
   label,
 }: MeterProps) {
-  const shown = useAnimatedNumber(clamp(value), animate);
+  // The authored moment: the meter calibrates from zero as the panel arrives.
+  // One state flip hands the tween to CSS, rather than 60 React renders.
+  const [calibrated, setCalibrated] = useState(!animate);
+  useEffect(() => {
+    if (!animate) {
+      setCalibrated(true);
+      return;
+    }
+    const frame = requestAnimationFrame(() => setCalibrated(true));
+    return () => cancelAnimationFrame(frame);
+  }, [animate]);
 
   const tickMarks = useMemo(
     () =>
@@ -57,9 +66,16 @@ export function Meter({
         className,
       )}
     >
+      {/* The fill is absolutely positioned, so animating its width costs no
+          layout beyond this element — and letting CSS own the tween keeps the
+          60fps work off React entirely. */}
       <div
-        className={cn('absolute inset-y-0 left-0 rounded-full', FILL_CLASS[tone])}
-        style={{ width: `${clamp(shown)}%` }}
+        className={cn(
+          'absolute inset-y-0 left-0 rounded-full',
+          FILL_CLASS[tone],
+          animate && 'transition-[width,background-color] duration-[420ms] ease-out-expo',
+        )}
+        style={{ width: calibrated ? `${clamp(value)}%` : '0%' }}
       />
       {/* Calibration ticks sit above the fill so the scale stays readable. */}
       <div aria-hidden="true" className="absolute inset-0">
@@ -73,7 +89,8 @@ export function Meter({
       </div>
     </div>
   );
-}
+
+});
 
 function clamp(n: number): number {
   return Math.max(0, Math.min(100, Number.isFinite(n) ? n : 0));

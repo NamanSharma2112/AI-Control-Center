@@ -20,6 +20,12 @@ export default defineConfig({
     watch: { ignored: ['**/src-tauri/**'] },
   },
   envPrefix: ['VITE_', 'TAURI_'],
+  esbuild: {
+    // Escape non-ASCII in the output so the bundle renders correctly even if
+    // a host serves it without an explicit charset. Cheap, and it removes a
+    // whole class of mojibake from the custom protocol the webview loads over.
+    charset: 'ascii',
+  },
   build: {
     // Safari 13 / Edge 89 are the floor for the webviews Tauri 2 targets.
     target: process.env.TAURI_ENV_PLATFORM === 'windows' ? 'chrome105' : 'safari15',

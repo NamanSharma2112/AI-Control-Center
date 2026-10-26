@@ -29,10 +29,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             let (edge, width) = state.edge_and_width();
             match event.id().as_ref() {
                 "open" => {
-                    let _ = window::show(app, &edge, width);
+                    let _ = window::show(app, &edge, width, window::Summon::Tray);
                 }
                 "settings" => {
-                    let _ = window::show(app, &edge, width);
+                    let _ = window::show(app, &edge, width, window::Summon::Tray);
                     let _ = tauri::Emitter::emit(app, "panel://settings", ());
                 }
                 "quit" => app.exit(0),
@@ -49,7 +49,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 let app = tray.app_handle();
                 let state = app.state::<Arc<AppState>>();
                 let (edge, width) = state.edge_and_width();
-                let _ = window::toggle(app, &edge, width);
+                let _ = window::toggle(app, &edge, width, window::Summon::Tray);
             }
         })
         .build(app)?;

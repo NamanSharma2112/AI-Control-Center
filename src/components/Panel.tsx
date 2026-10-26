@@ -20,6 +20,7 @@ import { cn } from '@/lib/cn';
  */
 export function Panel({ open = true }: { open?: boolean }) {
   const route = useApp((s) => s.route);
+  const summon = useApp((s) => s.summon);
   const notifications = useApp((s) => s.notifications);
   const dismiss = useApp((s) => s.dismissNotification);
 
@@ -28,8 +29,8 @@ export function Panel({ open = true }: { open?: boolean }) {
   const intensity = resolveIntensity(settings.motionIntensity, prefersReduced);
 
   const variants = useMemo(
-    () => panelVariants(settings.edge, intensity),
-    [settings.edge, intensity],
+    () => panelVariants(settings.edge, intensity, summon),
+    [settings.edge, intensity, summon],
   );
   const routeVars = useMemo(() => routeVariants(intensity), [intensity]);
   const scrollRef = useRef<HTMLDivElement>(null);

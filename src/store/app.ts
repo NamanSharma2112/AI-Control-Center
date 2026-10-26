@@ -21,12 +21,15 @@ import {
 } from '@/lib/derive';
 import { useSettings } from './settings';
 import { invokeSafe, isTauri } from '@/lib/tauri';
+import type { SummonSource } from '@/lib/motion';
 
 export type ViewRoute = 'dashboard' | 'settings';
 
 interface AppState {
   mode: AdapterMode;
   route: ViewRoute;
+  /** How the panel was last summoned; decides how it arrives. */
+  summon: SummonSource;
   snapshots: ProviderSnapshot[];
   sessions: Session[];
   activities: Activity[];
@@ -42,6 +45,7 @@ interface AppState {
 
   setMode: (mode: AdapterMode) => void;
   setRoute: (route: ViewRoute) => void;
+  setSummon: (summon: SummonSource) => void;
   refresh: () => Promise<void>;
   dismissNotification: (id: string) => void;
   clearNotifications: () => void;
@@ -60,6 +64,7 @@ export const useApp = create<AppState>((set, get) => ({
   // preview there is none, so sample data is the honest thing to show.
   mode: isTauri() ? 'live' : 'mock',
   route: 'dashboard',
+  summon: 'edge',
   snapshots: [],
   sessions: [],
   activities: [],
@@ -79,6 +84,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   setRoute(route) {
     set({ route });
+  },
+
+  setSummon(summon) {
+    set({ summon });
   },
 
   async refresh() {

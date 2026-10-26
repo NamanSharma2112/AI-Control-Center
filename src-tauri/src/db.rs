@@ -13,6 +13,17 @@ pub struct Db {
     conn: Mutex<Connection>,
 }
 
+/// One usage reading, named rather than passed as seven positional numbers.
+pub struct UsageReading<'a> {
+    pub provider_id: &'a str,
+    pub used: i64,
+    pub cap: Option<i64>,
+    pub percentage: f64,
+    pub reset_at: Option<i64>,
+    pub source: &'a str,
+    pub captured_at: i64,
+}
+
 impl Db {
     pub fn open(dir: &PathBuf) -> Result<Self> {
         std::fs::create_dir_all(dir)?;
@@ -86,7 +97,9 @@ impl Db {
             "#,
         )?;
 
-        Ok(Self { conn: Mutex::new(conn) })
+        Ok(Self {
+            conn: Mutex::new(conn),
+        })
     }
 
     /// Settings are stored as one JSON blob: they are read and written whole,
@@ -112,22 +125,21 @@ impl Db {
     }
 
     /// Record one usage reading, for the history the panel plots.
-    pub fn record_usage(
-        &self,
-        provider_id: &str,
-        used: i64,
-        cap: Option<i64>,
-        percentage: f64,
-        reset_at: Option<i64>,
-        source: &str,
-        captured_at: i64,
-    ) -> Result<()> {
+    pub fn record_usage(&self, reading: &UsageReading<'_>) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO usage_snapshots
                 (provider_id, used, cap, percentage, reset_at, source, captured_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![provider_id, used, cap, percentage, reset_at, source, captured_at],
+            params![
+                reading.provider_id,
+                reading.used,
+                reading.cap,
+                reading.percentage,
+                reading.reset_at,
+                reading.source,
+                reading.captured_at
+            ],
         )?;
         Ok(())
     }
@@ -139,7 +151,10 @@ impl Db {
         }
         let cutoff = now_ms - days * 86_400_000;
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM activities WHERE timestamp < ?1", params![cutoff])?;
+        conn.execute(
+            "DELETE FROM activities WHERE timestamp < ?1",
+            params![cutoff],
+        )?;
         conn.execute(
             "DELETE FROM usage_snapshots WHERE captured_at < ?1",
             params![cutoff],

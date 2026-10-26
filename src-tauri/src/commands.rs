@@ -1,3 +1,8 @@
+//! The command surface exposed to the webview.
+//!
+//! Kept narrow on purpose. Nothing here returns a secret, runs an arbitrary
+//! command, or takes a path the caller did not already receive from us.
+
 use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tauri_plugin_notification::NotificationExt;
@@ -7,11 +12,6 @@ use crate::providers::{self, LocalProviderStateDto};
 use crate::secrets;
 use crate::state::AppState;
 use crate::window;
-
-/// The command surface exposed to the webview.
-///
-/// Kept narrow on purpose. Nothing here returns a secret, runs an arbitrary
-/// command, or takes a path the caller did not already receive from us.
 
 pub struct Watcher(pub Arc<EdgeWatcher>);
 
@@ -30,15 +30,15 @@ pub fn read_provider_state(
         } else {
             0.0
         };
-        let _ = state.db.record_usage(
-            &provider,
-            usage.used,
-            Some(usage.cap),
+        let _ = state.db.record_usage(&crate::db::UsageReading {
+            provider_id: &provider,
+            used: usage.used,
+            cap: Some(usage.cap),
             percentage,
-            usage.reset_at,
-            "local",
-            providers::now_ms(),
-        );
+            reset_at: usage.reset_at,
+            source: "local",
+            captured_at: providers::now_ms(),
+        });
     }
 
     result
@@ -84,7 +84,7 @@ pub fn hide_panel(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn show_panel(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let (edge, width) = state.edge_and_width();
-    window::show(&app, &edge, width).map_err(|e| e.to_string())
+    window::show(&app, &edge, width, window::Summon::Tray).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

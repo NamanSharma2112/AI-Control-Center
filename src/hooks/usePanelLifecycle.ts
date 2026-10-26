@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useApp } from '@/store/app';
 import { useSettings } from '@/store/settings';
+import type { SummonSource } from '@/lib/motion';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 
 /**
@@ -14,6 +15,7 @@ import { invokeSafe, isTauri } from '@/lib/tauri';
 export function usePanelLifecycle(): void {
   const refresh = useApp((s) => s.refresh);
   const setRoute = useApp((s) => s.setRoute);
+  const setSummon = useApp((s) => s.setSummon);
   const loadSettings = useSettings((s) => s.load);
 
   // Boot: restore preferences, then take the first reading.
@@ -54,9 +56,15 @@ export function usePanelLifecycle(): void {
   useEffect(() => {
     if (!isTauri()) return;
     const unlisteners: Array<Promise<() => void>> = [
-      listen('panel://shown', () => {
+      listen<string>('panel://shown', (event) => {
+        // The shell says how it was summoned; a keyboard toggle skips the
+        // entrance so the answer is on screen the instant the key is pressed.
+        setSummon(isSummonSource(event.payload) ? event.payload : 'edge');
         setRoute('dashboard');
         void refresh();
+      }),
+      listen('panel://settings', () => {
+        setRoute('settings');
       }),
       listen('provider://changed', () => {
         void refresh();
@@ -65,7 +73,7 @@ export function usePanelLifecycle(): void {
     return () => {
       for (const u of unlisteners) void u.then((fn) => fn());
     };
-  }, [refresh, setRoute]);
+  }, [refresh, setRoute, setSummon]);
 
   // Escape dismisses. In a browser preview there is no window to hide, so the
   // key simply does nothing rather than throwing.
@@ -86,4 +94,8 @@ export function usePanelLifecycle(): void {
     window.addEventListener('blur', onBlur);
     return () => window.removeEventListener('blur', onBlur);
   }, []);
+}
+
+function isSummonSource(value: unknown): value is SummonSource {
+  return value === 'edge' || value === 'shortcut' || value === 'tray';
 }

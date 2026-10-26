@@ -2,6 +2,12 @@ import type { Transition, Variants } from 'motion/react';
 import type { EdgeSide, MotionIntensity } from '@/store/settings';
 
 /**
+ * How the panel was summoned. It changes how the panel should arrive, so the
+ * shell reports it rather than the webview guessing.
+ */
+export type SummonSource = 'edge' | 'shortcut' | 'tray';
+
+/**
  * Motion system.
  *
  * Thesis — the panel is an instrument taking a reading. The one authored
@@ -10,6 +16,13 @@ import type { EdgeSide, MotionIntensity } from '@/store/settings';
  * meters calibrate from zero to their value immediately behind it. That
  * sequence plays on open and never again; a later data change updates a value
  * quietly, because a re-running entrance would be theatre.
+ *
+ * Arrival is conditional on how the panel was summoned, which matters more
+ * than it sounds. An edge push is a slow pointer gesture with a real spatial
+ * origin, so the slide continues a movement the user already started. A global
+ * shortcut is a power-user action pressed many times a day, and animating it
+ * would put 300ms between the keypress and the answer every single time. So
+ * the keyboard path presents instantly and only the gesture path slides.
  *
  * Continuity — route changes between dashboard and settings move horizontally
  * so the two read as adjacent faces of one panel, not two pages.
@@ -47,9 +60,23 @@ export const STATE_TRANSITION: Transition = {
 const STAGGER_STEP = 0.018;
 const STAGGER_CAP = 7;
 
-export function panelVariants(edge: EdgeSide, intensity: MotionIntensity): Variants {
+export function panelVariants(
+  edge: EdgeSide,
+  intensity: MotionIntensity,
+  source: SummonSource = 'edge',
+): Variants {
   const offscreen = edge === 'right' ? '100%' : '-100%';
   const exitNudge = edge === 'right' ? 16 : -16;
+
+  // A keyboard-initiated toggle is a high-frequency action: it gets no
+  // entrance, only the exit, which the user is not waiting on.
+  if (source === 'shortcut' && intensity === 'full') {
+    return {
+      hidden: { opacity: 0, x: 0 },
+      visible: { opacity: 1, x: 0, transition: { duration: 0 } },
+      exit: { opacity: 0, x: exitNudge, transition: PANEL_EXIT },
+    };
+  }
 
   if (intensity === 'none') {
     return {
@@ -82,8 +109,15 @@ export function panelVariants(edge: EdgeSide, intensity: MotionIntensity): Varia
   };
 }
 
-/** Section entrance, riding the panel's arrival once. */
-export function sectionVariants(intensity: MotionIntensity): Variants {
+/**
+ * Row entrance for a feed, riding the panel's arrival once.
+ *
+ * Used only where a list genuinely reads as a list. The panel itself is one
+ * object arriving, so its *sections* deliberately do not animate separately:
+ * a container entrance plus staggered children is two entrances for one event,
+ * and it reads as flutter rather than as a faceplate sliding in.
+ */
+export function rowVariants(intensity: MotionIntensity): Variants {
   if (intensity !== 'full') {
     return {
       hidden: { opacity: 1, y: 0 },

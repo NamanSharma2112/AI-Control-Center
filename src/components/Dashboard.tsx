@@ -1,10 +1,9 @@
-import { Fragment, useMemo } from 'react';
-import { motion } from 'motion/react';
+import { useMemo } from 'react';
 import { useApp } from '@/store/app';
 import { useSetting } from '@/store/settings';
 import { usePrefersReducedMotion } from '@/hooks/useReducedMotion';
 import { useTicker } from '@/hooks/useTicker';
-import { resolveIntensity, sectionVariants } from '@/lib/motion';
+import { resolveIntensity } from '@/lib/motion';
 import { activeSessions, todaysActivities } from '@/lib/derive';
 import { ProviderCard } from './ProviderCard';
 import { SessionRow } from './SessionRow';
@@ -39,18 +38,9 @@ export function Dashboard() {
   // One shared clock, and only while something is actually counting.
   const now = useTicker(active.length > 0);
 
-  const variants = useMemo(() => sectionVariants(intensity), [intensity]);
-  let step = 0;
-  const section = () => ({
-    variants,
-    custom: step++,
-    initial: animate ? ('hidden' as const) : false,
-    animate: 'visible' as const,
-  });
-
   return (
     <div className="flex flex-col">
-      <motion.section {...section()} aria-labelledby="sec-usage">
+      <section aria-labelledby="sec-usage">
         {/* No section-level provenance here: each row carries its own, and a
             second tag at this level would have to speak for both. */}
         <SectionHeader className="pt-3">
@@ -66,11 +56,11 @@ export function Dashboard() {
             />
           ))}
         </div>
-      </motion.section>
+      </section>
 
       <Rule />
 
-      <motion.section {...section()} aria-labelledby="sec-agents">
+      <section aria-labelledby="sec-agents">
         <SectionHeader
           trailing={
             active.length > 0 ? (
@@ -91,45 +81,47 @@ export function Dashboard() {
             No agents running. Start one and it appears here.
           </p>
         )}
-      </motion.section>
+      </section>
 
       <Rule />
 
-      <motion.section {...section()} aria-labelledby="sec-today">
+      <section aria-labelledby="sec-today">
         <SectionHeader>
           <span id="sec-today">Today</span>
         </SectionHeader>
         <TodaySummary today={today} animate={animate} />
-      </motion.section>
+      </section>
 
       <Rule />
 
-      <motion.section {...section()} aria-labelledby="sec-recent">
+      <section aria-labelledby="sec-recent">
         <SectionHeader>
           <span id="sec-recent">Recent activity</span>
         </SectionHeader>
-        <Timeline activities={timeline.length > 0 ? timeline : activities} />
-      </motion.section>
+        <Timeline
+          activities={timeline.length > 0 ? timeline : activities}
+          intensity={intensity}
+        />
+      </section>
 
       <Rule />
 
-      <motion.section {...section()} aria-labelledby="sec-history">
+      <section aria-labelledby="sec-history">
         <SectionHeader trailing={<ProvenanceTag source="local" />}>
           <span id="sec-history">7-day activity</span>
         </SectionHeader>
         <UsageHistory history={history} animate={animate} />
-      </motion.section>
+      </section>
 
       <Rule />
 
-      <motion.section {...section()} aria-labelledby="sec-projects">
+      <section aria-labelledby="sec-projects">
         <SectionHeader trailing={<ProvenanceTag source="local" />}>
           <span id="sec-projects">Projects</span>
         </SectionHeader>
         <ProjectBreakdown projects={projects} animate={animate} />
-      </motion.section>
+      </section>
 
-      <Fragment />
     </div>
   );
 }

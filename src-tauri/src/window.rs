@@ -1,13 +1,13 @@
+//! Window placement and visibility.
+//!
+//! The panel is attached to a screen edge rather than floating: full monitor
+//! height, flush with the side, on whichever monitor the cursor is on. That
+//! last part matters on a multi-monitor desk, where a panel that always
+//! appears on monitor 1 is a panel you stop reaching for.
+
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, WebviewWindow};
 
 pub const PANEL: &str = "panel";
-
-/// Window placement and visibility.
-///
-/// The panel is attached to a screen edge rather than floating: full monitor
-/// height, flush with the side, on whichever monitor the cursor is on. That
-/// last part matters on a multi-monitor desk, where a panel that always
-/// appears on monitor 1 is a panel you stop reaching for.
 
 pub fn panel(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(PANEL)
@@ -47,8 +47,28 @@ pub fn apply_layout(app: &AppHandle, edge: &str, width: f64) -> tauri::Result<()
     Ok(())
 }
 
+/// How the panel was summoned. The webview uses this to decide how the panel
+/// should arrive: a slow edge gesture earns a slide, a global shortcut pressed
+/// dozens of times a day does not.
+#[derive(Clone, Copy)]
+pub enum Summon {
+    Edge,
+    Shortcut,
+    Tray,
+}
+
+impl Summon {
+    fn as_str(self) -> &'static str {
+        match self {
+            Summon::Edge => "edge",
+            Summon::Shortcut => "shortcut",
+            Summon::Tray => "tray",
+        }
+    }
+}
+
 /// Shows the panel and tells the webview, so it can take a fresh reading.
-pub fn show(app: &AppHandle, edge: &str, width: f64) -> tauri::Result<()> {
+pub fn show(app: &AppHandle, edge: &str, width: f64, source: Summon) -> tauri::Result<()> {
     let Some(window) = panel(app) else {
         return Ok(());
     };
@@ -59,7 +79,7 @@ pub fn show(app: &AppHandle, edge: &str, width: f64) -> tauri::Result<()> {
     window.show()?;
     window.set_always_on_top(true)?;
     window.set_focus()?;
-    let _ = app.emit("panel://shown", ());
+    let _ = app.emit("panel://shown", source.as_str());
     Ok(())
 }
 
@@ -73,14 +93,14 @@ pub fn hide(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
-pub fn toggle(app: &AppHandle, edge: &str, width: f64) -> tauri::Result<()> {
+pub fn toggle(app: &AppHandle, edge: &str, width: f64, source: Summon) -> tauri::Result<()> {
     let Some(window) = panel(app) else {
         return Ok(());
     };
     if window.is_visible().unwrap_or(false) {
         hide(app)
     } else {
-        show(app, edge, width)
+        show(app, edge, width, source)
     }
 }
 

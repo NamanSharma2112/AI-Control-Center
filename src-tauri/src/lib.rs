@@ -63,9 +63,7 @@ pub fn run() {
 
             // Honor the stored retention window at boot, so a user who asked
             // for 7 days does not find 90 waiting after an upgrade.
-            let _ = state
-                .db
-                .prune(state.retention_days(), providers::now_ms());
+            let _ = state.db.prune(state.retention_days(), providers::now_ms());
 
             app.manage(state.clone());
             app.manage(shortcut::BoundShortcut(Mutex::new(None)));

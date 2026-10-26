@@ -1,3 +1,14 @@
+//! Edge activation.
+//!
+//! There is no cross-platform OS event for "the cursor reached the screen
+//! edge", so this samples the pointer. The cost is kept near zero by sampling
+//! slowly while the cursor is nowhere near the edge and only tightening up
+//! when it gets close — the pointer has to cross most of the screen to reach
+//! the edge, so a far-away cursor needs no precision at all.
+//!
+//! The thread parks entirely when activation is switched off, so the feature
+//! costs literally nothing when unused.
+
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -7,16 +18,6 @@ use tauri::AppHandle;
 use crate::state::AppState;
 use crate::window;
 
-/// Edge activation.
-///
-/// There is no cross-platform OS event for "the cursor reached the screen
-/// edge", so this samples the pointer. The cost is kept near zero by sampling
-/// slowly while the cursor is nowhere near the edge and only tightening up
-/// when it gets close — the pointer has to cross most of the screen to reach
-/// the edge, so a far-away cursor needs no precision at all.
-///
-/// The thread parks entirely when activation is switched off, so the feature
-/// costs literally nothing when unused.
 const IDLE_POLL_MS: u64 = 260;
 const NEAR_POLL_MS: u64 = 40;
 /// Within this many px of the edge we sample at the fast rate.
@@ -59,10 +60,7 @@ impl EdgeWatcher {
                     continue;
                 };
 
-                let monitor = app
-                    .monitor_from_point(cursor.x, cursor.y)
-                    .ok()
-                    .flatten();
+                let monitor = app.monitor_from_point(cursor.x, cursor.y).ok().flatten();
                 let Some(monitor) = monitor else {
                     thread::sleep(Duration::from_millis(IDLE_POLL_MS));
                     continue;
@@ -98,7 +96,7 @@ impl EdgeWatcher {
                                 let edge = edge.clone();
                                 // Window calls must run on the main thread.
                                 let _ = app.run_on_main_thread(move || {
-                                    let _ = window::show(&app2, &edge, width);
+                                    let _ = window::show(&app2, &edge, width, window::Summon::Edge);
                                 });
                             }
                             dwelling_since = None;

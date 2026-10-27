@@ -16,7 +16,36 @@ Windows 11 and macOS. Local-first: no backend, no account, no telemetry.
 
 ---
 
-## Running it
+## Install
+
+1. Open the [latest release](https://github.com/NamanSharma2112/AI-Control-Center/releases/latest)
+   and download the file for your computer:
+   - **Mac:** `AI.Control.Center_…_universal.dmg`. Open it and drag the app to
+     Applications.
+   - **Windows:** `AI.Control.Center_…_x64-setup.exe`. Run it. It installs for
+     your user only, so it never asks for administrator rights.
+2. Open **AI Control Center**. The panel appears with a short welcome.
+3. From then on it lives in the menu bar (Mac) or system tray (Windows). Push the
+   cursor into the right edge of the screen, or press **⌘⇧Space** /
+   **Ctrl+Shift+Space**, to open it.
+
+**If you see a security warning on first open:** current builds are not
+code-signed yet. On a Mac, right-click the app → **Open** → **Open**. On
+Windows, choose **More info** → **Run anyway**. You only need to do this once.
+
+**Connecting your agents:** nothing to connect. If you use
+[Claude Code](https://docs.claude.com/en/docs/claude-code) or
+[Codex](https://github.com/openai/codex), their sessions appear automatically,
+because the app reads the session files those tools already keep on your
+computer. No sign-in, no API keys. It cannot see Claude or ChatGPT used in a web
+browser, because those don't save anything locally.
+
+**About "% left":** providers don't let other apps read plan limits, so the app
+counts your usage locally and compares it with a limit you set in
+**Settings → Plan limits**. If you don't know your limit, use the panel until you
+hit it, then press *Set it to current usage*.
+
+## Running from source
 
 ```bash
 npm install
@@ -122,6 +151,12 @@ breakdown and the history plot without touching any of them.
 
 ---
 
+## Releasing
+
+See [RELEASING.md](RELEASING.md): tag a version and GitHub builds the Mac and
+Windows installers. Code signing and auto-update switch on when you add their
+secrets.
+
 ## Security
 
 - Credentials go to the OS keychain (Keychain / Credential Manager / Secret
@@ -133,7 +168,10 @@ breakdown and the history plot without touching any of them.
 - `open_path` and `open_terminal` accept only a directory that exists, and pass
   it as an argument to a fixed program rather than interpolating it into a
   shell string.
-- A strict CSP is set in `tauri.conf.json`; the app makes no network requests.
+- A strict CSP is set in `tauri.conf.json`. The only network request is the
+  optional update check (one static file from GitHub Releases, no user data),
+  which can be turned off in Settings and exists only in builds with an update
+  signing key.
 
 ## Performance
 

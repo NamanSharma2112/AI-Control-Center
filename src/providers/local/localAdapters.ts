@@ -13,7 +13,7 @@ import type {
   Usage,
 } from '@/types/domain';
 import { invokeSafe, invokeStrict } from '@/lib/tauri';
-import { EMPTY_STATE, type LocalProviderStateDto } from './dto';
+import { EMPTY_STATE, type LocalProviderStateDto, type LocalSessionDto } from './dto';
 import { MINUTE } from '@/lib/time';
 
 /**
@@ -100,15 +100,23 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
       if (!state.available) return [];
       const now = Date.now();
       return state.sessions
-        .map<Session>((s) => ({
+        .map<Session>((s) => {
+          const { status, waitingReason } = resolveStatus(s, now);
+          return {
           id: s.id,
           providerId: id,
           project: s.project,
           projectPath: s.projectPath,
-          status: resolveStatus(s.status, s.lastActivityAt, now),
+          status,
+          ...(waitingReason ? { waitingReason } : {}),
           startedAt: s.startedAt,
           lastActivityAt: s.lastActivityAt,
-          currentActivity: s.currentActivity,
+          currentActivity:
+            waitingReason === 'tool'
+              ? `Waiting on: ${s.currentActivity}`
+              : waitingReason === 'idle'
+                ? `Idle after: ${s.currentActivity}`
+                : s.currentActivity,
           source: 'local',
           ...(s.model ? { model: s.model } : {}),
           steps: s.steps.map<SessionStep>((step) => ({
@@ -119,7 +127,8 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
             durationMs: step.durationMs,
           })),
           filesChanged: s.filesChanged,
-        }))
+          };
+        })
         .sort((a, b) => b.lastActivityAt - a.lastActivityAt);
     },
 
@@ -152,10 +161,25 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
   };
 }
 
-function resolveStatus(raw: string, lastActivityAt: number, now: number): SessionStatus {
-  if (raw === 'completed') return 'completed';
-  if (raw === 'failed') return 'failed';
-  return now - lastActivityAt < RUNNING_WINDOW ? 'running' : 'waiting';
+/** A tool call this long without a result is almost always an approval prompt. */
+const TOOL_WAIT = 45_000;
+/** A finished turn is called done once nothing has followed it for this long. */
+const SETTLE = 15_000;
+
+/**
+ * Status from the transcript's own markers rather than from silence alone:
+ * a finished turn is done, an unanswered tool call is waiting on you, and a
+ * recent write is working. Only when none apply does silence mean "idle".
+ */
+function resolveStatus(
+  s: LocalSessionDto,
+  now: number,
+): { status: SessionStatus; waitingReason?: 'tool' | 'idle' } {
+  const idle = now - s.lastActivityAt;
+  if (s.turnEnded && idle >= SETTLE) return { status: 'completed' };
+  if (s.pendingTool && idle >= TOOL_WAIT) return { status: 'waiting', waitingReason: 'tool' };
+  if (idle < RUNNING_WINDOW) return { status: 'running' };
+  return { status: 'waiting', waitingReason: 'idle' };
 }
 
 const ACTIVITY_TYPES: readonly ActivityType[] = [

@@ -26,6 +26,8 @@ export interface LocalSessionDto {
   model: string | null;
   steps: LocalStepDto[];
   filesChanged: number;
+  turnEnded: boolean;
+  pendingTool: boolean;
 }
 
 export interface LocalActivityDto {

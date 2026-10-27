@@ -1,0 +1,117 @@
+name: Release
+
+# Push a version tag (v0.1.0) to build installers and attach them to a draft
+# GitHub Release. Run it by hand (Actions → Release → Run workflow) to build
+# the installers as downloadable artifacts without creating a release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon + Intel)
+            os: macos-latest
+            args: --target universal-apple-darwin
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+          - name: Windows
+            os: windows-latest
+            args: ''
+            rust-targets: ''
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      # Signing and auto-update are optional. Each secret is passed on only if
+      # it is actually set: an empty variable would make the bundler try (and
+      # fail) to sign with nothing. With no secrets, the installers are built
+      # unsigned and without the updater, and still work.
+      - name: Configure optional signing and updates
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          UPDATER_PUBKEY: ${{ vars.UPDATER_PUBKEY }}
+        run: |
+          pass_on() {
+            local name="$1" value="${!1}"
+            [ -z "$value" ] && return 1
+            { echo "$name<<__ACC_EOF__"; echo "$value"; echo "__ACC_EOF__"; } >> "$GITHUB_ENV"
+          }
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            for v in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              pass_on "$v" && echo "macOS signing: $v set" || echo "macOS signing: $v not set"
+            done
+          fi
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && [ -n "$UPDATER_PUBKEY" ]; then
+            pass_on TAURI_SIGNING_PRIVATE_KEY
+            pass_on TAURI_SIGNING_PRIVATE_KEY_PASSWORD || true
+            cat > src-tauri/tauri.updater.conf.json <<JSON
+          {
+            "bundle": { "createUpdaterArtifacts": true },
+            "plugins": {
+              "updater": {
+                "pubkey": "$UPDATER_PUBKEY",
+                "endpoints": ["https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/latest.json"]
+              }
+            }
+          }
+          JSON
+            echo "ACC_UPDATER=1" >> "$GITHUB_ENV"
+            echo "UPDATER_ARGS=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_ENV"
+            echo "Auto-update: enabled"
+          else
+            echo "Auto-update: not configured (see RELEASING.md)"
+          fi
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Only a tag push creates a release; a manual run just builds.
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseName: AI Control Center ${{ github.ref_name }}
+          releaseBody: Download the installer for your system below. See the README for first-run steps.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }} ${{ env.UPDATER_ARGS }}
+
+      - name: Keep the installers from a manual run
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ runner.os }}
+          path: |
+            src-tauri/target/**/release/bundle/dmg/*.dmg
+            src-tauri/target/**/release/bundle/nsis/*.exe
+          if-no-files-found: error

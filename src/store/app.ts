@@ -23,7 +23,7 @@ import { useSettings } from './settings';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 import type { SummonSource } from '@/lib/motion';
 
-export type ViewRoute = 'dashboard' | 'settings';
+export type ViewRoute = 'dashboard' | 'settings' | 'welcome';
 
 interface AppState {
   mode: AdapterMode;
@@ -48,6 +48,8 @@ interface AppState {
   setSummon: (summon: SummonSource) => void;
   refresh: () => Promise<void>;
   dismissNotification: (id: string) => void;
+  /** Adds a notice from outside provider state (e.g. an available update). */
+  announce: (notice: AppNotification) => void;
   clearNotifications: () => void;
   stopSession: (providerId: ProviderId, sessionId: string) => Promise<void>;
 }
@@ -105,6 +107,8 @@ export const useApp = create<AppState>((set, get) => ({
 
     const sessions = mergeSessions(snapshots);
     const activities = mergeActivities(snapshots);
+    const before = new Set(get().notifications.map((n) => n.id));
+    const notifications = reconcileNotifications(get().notifications, snapshots);
 
     set({
       snapshots,
@@ -117,8 +121,20 @@ export const useApp = create<AppState>((set, get) => ({
       refreshing: false,
       lastRefreshedAt: Date.now(),
       hydrated: true,
-      notifications: reconcileNotifications(get().notifications, snapshots),
+      notifications,
     });
+
+    // Anything new also goes to the OS, which shows it only while the panel
+    // is hidden: with the panel open, the in-panel notice is enough.
+    for (const n of notifications) {
+      if (!before.has(n.id)) void emitSystemNotification(n);
+    }
+  },
+
+  announce(notice) {
+    if (get().notifications.some((n) => n.id === notice.id)) return;
+    set({ notifications: [notice, ...get().notifications].slice(0, 4) });
+    void emitSystemNotification(notice);
   },
 
   dismissNotification(id) {
@@ -141,6 +157,9 @@ export const useApp = create<AppState>((set, get) => ({
  * already on screen — so a provider sitting at 88% produces one notice, not
  * one per refresh. This is the whole of "do not spam the user".
  */
+/** Each session's status at the last reading; null before the first. */
+let previousStatus: Map<string, string> | null = null;
+
 function reconcileNotifications(
   existing: AppNotification[],
   snapshots: ProviderSnapshot[],
@@ -186,19 +205,57 @@ function reconcileNotifications(
       }
     }
 
-    if (settings.notifyOnIdle) {
-      const idleMs = settings.idleAfterMinutes * 60_000;
-      for (const session of snap.sessions) {
-        if (session.status !== 'waiting') continue;
-        if (Date.now() - session.lastActivityAt < idleMs) continue;
-        const id = `idle:${session.id}`;
+  }
+
+  // Transitions since the last reading. The first reading only records the
+  // baseline: an agent that finished before the app started is not news.
+  const prev = previousStatus;
+  previousStatus = new Map();
+  for (const snap of snapshots) {
+    for (const session of snap.sessions) {
+      previousStatus.set(session.id, `${session.status}:${session.waitingReason ?? ''}`);
+    }
+  }
+  if (prev === null) {
+    return next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 4);
+  }
+
+  for (const snap of snapshots) {
+    if (!snap.provider.connected) continue;
+    for (const session of snap.sessions) {
+      const before = prev.get(session.id);
+      const now = `${session.status}:${session.waitingReason ?? ''}`;
+      if (before === undefined || before === now) continue;
+
+      if (session.status === 'completed' && settings.notifyOnSessionComplete) {
+        const id = `done:${session.id}:${session.lastActivityAt}`;
+        if (seen.has(id)) continue;
+        const minutes = Math.max(1, Math.round((session.lastActivityAt - session.startedAt) / 60_000));
+        next.push({
+          id,
+          kind: 'session',
+          severity: 'info',
+          title: `${snap.provider.name} finished in ${session.project}`,
+          detail: `${minutes} min${session.filesChanged ? ` · ${session.filesChanged} files changed` : ''}`,
+          providerId: snap.provider.id,
+          timestamp: Date.now(),
+          read: false,
+        });
+      }
+
+      if (
+        session.status === 'waiting' &&
+        session.waitingReason === 'tool' &&
+        settings.notifyOnNeedsYou
+      ) {
+        const id = `needs:${session.id}:${session.lastActivityAt}`;
         if (seen.has(id)) continue;
         next.push({
           id,
           kind: 'idle',
-          severity: 'info',
-          title: `${snap.provider.name} idle for ${settings.idleAfterMinutes} minutes`,
-          detail: session.project,
+          severity: 'warn',
+          title: `${snap.provider.name} is waiting in ${session.project}`,
+          detail: session.currentActivity,
           providerId: snap.provider.id,
           timestamp: Date.now(),
           read: false,

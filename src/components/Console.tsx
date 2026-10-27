@@ -71,7 +71,9 @@ export function Console({
   // Ordered against the minute, not the second: which sessions count as
   // "recently finished" cannot change faster than that.
   const agents = useMemo(() => orderAgents(sessions, minute * 60_000), [sessions, minute]);
-  const needsYou = agents.filter((s) => s.status === 'waiting').length;
+  const needsYou = agents.filter(
+    (s) => s.status === 'waiting' && s.waitingReason !== 'idle',
+  ).length;
   const working = agents.filter((s) => s.status === 'running').length;
 
   const [tab, setTab] = useState<Tab>('agents');

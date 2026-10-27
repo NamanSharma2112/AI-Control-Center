@@ -116,8 +116,13 @@ pub fn clear_local_data(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     state.db.clear_local_data().map_err(|e| e.to_string())
 }
 
+/// Shows an OS notification, but only while the panel is hidden: with the
+/// panel open the same notice is already on screen inside it.
 #[tauri::command]
 pub fn notify(app: AppHandle, title: String, body: String) -> Result<(), String> {
+    if window::is_visible(&app) {
+        return Ok(());
+    }
     app.notification()
         .builder()
         .title(title)

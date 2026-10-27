@@ -6,6 +6,7 @@ mod secrets;
 mod shortcut;
 mod state;
 mod tray;
+mod updater;
 mod watcher;
 mod window;
 
@@ -30,6 +31,12 @@ pub fn run() {
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ));
+        // The updater exists only in release builds made with an update
+        // signing key (CI sets ACC_UPDATER and supplies the plugin's config).
+        // Registering it without that config would fail at launch.
+        if updater::ENABLED {
+            builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+        }
     }
 
     builder
@@ -53,6 +60,8 @@ pub fn run() {
             commands::store_credential,
             commands::delete_credential,
             commands::set_autostart,
+            updater::check_update,
+            updater::install_update,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

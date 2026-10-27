@@ -54,6 +54,11 @@ pub struct LocalSessionDto {
     pub model: Option<String>,
     pub steps: Vec<LocalStepDto>,
     pub files_changed: i64,
+    /// The agent's last act was finishing its turn: it is done and idle.
+    pub turn_ended: bool,
+    /// The agent called a tool that has not returned yet. When that lasts,
+    /// the CLI is usually waiting for the user to approve the call.
+    pub pending_tool: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -130,6 +135,17 @@ struct Step {
     file: Option<String>,
 }
 
+/// A change in what the agent is waiting on. Folded over a transcript, these
+/// say whether a session is working, waiting on a tool, or finished.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Signal {
+    Prompted,
+    ToolCalled,
+    ToolReturned,
+    /// An explicit end-of-turn marker, or a plain reply with no tool call.
+    TurnEnded,
+}
+
 pub fn read_provider_state(provider: &str, cap: i64) -> LocalProviderStateDto {
     match provider {
         "claude-code" => read_cli_state(ClaudeCode, cap),
@@ -155,6 +171,8 @@ trait CliLayout {
     fn step(&self, record: &Record) -> Option<Step>;
     /// Model name, when this record carries one.
     fn model(&self, record: &Record) -> Option<String>;
+    /// How this record changes what the agent is waiting on.
+    fn signal(&self, record: &Record) -> Option<Signal>;
     /// Working directory, when this record carries one.
     fn cwd(&self, record: &Record) -> Option<String> {
         record.cwd.clone()
@@ -297,6 +315,31 @@ impl CliLayout for ClaudeCode {
         }
     }
 
+    fn signal(&self, record: &Record) -> Option<Signal> {
+        let message = record.message.as_ref()?;
+        let items = message.get("content").and_then(|c| c.as_array());
+        let has = |kind: &str| {
+            items.is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|i| i.get("type").and_then(|t| t.as_str()) == Some(kind))
+            })
+        };
+        match record.kind.as_deref()? {
+            "assistant" if has("tool_use") => Some(Signal::ToolCalled),
+            // A reply without a tool call ends the turn, whether or not this
+            // CLI version wrote an explicit stop_reason.
+            "assistant" if has("text") => Some(Signal::TurnEnded),
+            "assistant" => (message.get("stop_reason").and_then(|r| r.as_str())
+                == Some("end_turn"))
+            .then_some(Signal::TurnEnded),
+            "user" if has("tool_result") => Some(Signal::ToolReturned),
+            "user" => matches!(self.step(record), Some(Step { kind: "prompt", .. }))
+                .then_some(Signal::Prompted),
+            _ => None,
+        }
+    }
+
     fn model(&self, record: &Record) -> Option<String> {
         record
             .message
@@ -420,6 +463,22 @@ impl CliLayout for Codex {
                 }
                 Some(command_step(&command, None))
             }
+            _ => None,
+        }
+    }
+
+    fn signal(&self, record: &Record) -> Option<Signal> {
+        let payload = record.payload.as_ref()?;
+        match payload.get("type")?.as_str()? {
+            "function_call" | "custom_tool_call" | "local_shell_call" => Some(Signal::ToolCalled),
+            "function_call_output" | "custom_tool_call_output" => Some(Signal::ToolReturned),
+            "task_complete" | "turn_complete" => Some(Signal::TurnEnded),
+            "message" => match payload.get("role")?.as_str()? {
+                "assistant" => Some(Signal::TurnEnded),
+                "user" => matches!(self.step(record), Some(Step { kind: "prompt", .. }))
+                    .then_some(Signal::Prompted),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -576,6 +635,8 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
             model: scan.model,
             steps,
             files_changed,
+            turn_ended: scan.turn_ended,
+            pending_tool: scan.pending_tool,
         });
     }
 
@@ -700,6 +761,8 @@ struct SessionScan {
     weighted: i64,
     event_count: i64,
     steps: Vec<(Step, i64)>,
+    turn_ended: bool,
+    pending_tool: bool,
 }
 
 /// Reads the head of a transcript for its origin, and the tail for what is
@@ -718,6 +781,8 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
         weighted: 0,
         event_count: 0,
         steps: Vec::new(),
+        turn_ended: false,
+        pending_tool: false,
     };
 
     // Head: the first line carries the project and the start time.
@@ -781,6 +846,22 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
         }
         if let Some(step) = layout.step(&record) {
             scan.steps.push((step, ts));
+        }
+        match layout.signal(&record) {
+            Some(Signal::Prompted) => {
+                scan.turn_ended = false;
+                scan.pending_tool = false;
+            }
+            Some(Signal::ToolCalled) => {
+                scan.turn_ended = false;
+                scan.pending_tool = true;
+            }
+            Some(Signal::ToolReturned) => scan.pending_tool = false,
+            Some(Signal::TurnEnded) => {
+                scan.turn_ended = true;
+                scan.pending_tool = false;
+            }
+            None => {}
         }
     }
 
@@ -1179,6 +1260,62 @@ mod tests {
         assert_eq!(later.weighted, 0);
 
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn fold<L: CliLayout>(layout: &L, lines: &[&str]) -> (bool, bool) {
+        let (mut ended, mut pending) = (false, false);
+        for line in lines {
+            match layout.signal(&record(line)) {
+                Some(Signal::Prompted) => (ended, pending) = (false, false),
+                Some(Signal::ToolCalled) => (ended, pending) = (false, true),
+                Some(Signal::ToolReturned) => pending = false,
+                Some(Signal::TurnEnded) => (ended, pending) = (true, false),
+                None => {}
+            }
+        }
+        (ended, pending)
+    }
+
+    #[test]
+    fn claude_states_follow_the_transcript() {
+        let prompt = r#"{"type":"user","message":{"role":"user","content":"Fix it"}}"#;
+        let call = r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"npm test"}}]}}"#;
+        let result = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}"#;
+        let reply = r#"{"type":"assistant","message":{"stop_reason":"end_turn","content":[{"type":"text","text":"Done."}]}}"#;
+
+        assert_eq!(
+            fold(&ClaudeCode, &[prompt, call]),
+            (false, true),
+            "waiting on a tool"
+        );
+        assert_eq!(
+            fold(&ClaudeCode, &[prompt, call, result]),
+            (false, false),
+            "working"
+        );
+        assert_eq!(
+            fold(&ClaudeCode, &[prompt, call, result, reply]),
+            (true, false),
+            "finished"
+        );
+        assert_eq!(
+            fold(&ClaudeCode, &[prompt, call, result, reply, prompt]),
+            (false, false),
+            "resumed"
+        );
+    }
+
+    #[test]
+    fn codex_states_follow_the_rollout() {
+        let prompt = r#"{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix it"}]}}"#;
+        let call = r#"{"type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}"}}"#;
+        let output =
+            r#"{"type":"response_item","payload":{"type":"function_call_output","output":"ok"}}"#;
+        let done = r#"{"type":"event_msg","payload":{"type":"task_complete"}}"#;
+
+        assert_eq!(fold(&Codex, &[prompt, call]), (false, true));
+        assert_eq!(fold(&Codex, &[prompt, call, output]), (false, false));
+        assert_eq!(fold(&Codex, &[prompt, call, output, done]), (true, false));
     }
 
     #[test]

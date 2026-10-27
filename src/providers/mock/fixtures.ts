@@ -203,6 +203,7 @@ export function buildSessions(p: MockProfile): Session[] {
       model: s.model,
       steps: buildSteps(id, s.steps, t0 - s.lastActivityMsAgo),
       filesChanged: countEdits(s.steps),
+      ...(s.status === 'waiting' ? { waitingReason: 'tool' as const } : {}),
       ...(s.stoppable ? { stoppable: true } : {}),
     };
   });

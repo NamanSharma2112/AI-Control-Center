@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useApp } from '@/store/app';
 import { useSettings } from '@/store/settings';
+import { useUpdates } from '@/store/updates';
 import type { SummonSource } from '@/lib/motion';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 
@@ -18,13 +19,33 @@ export function usePanelLifecycle(): void {
   const setSummon = useApp((s) => s.setSummon);
   const loadSettings = useSettings((s) => s.load);
 
-  // Boot: restore preferences, then take the first reading.
+  // Boot: restore preferences, take the first reading, then (if allowed)
+  // check for an update once. A found update is announced once, in the panel.
   useEffect(() => {
     void (async () => {
       await loadSettings();
       await refresh();
+      if (!useSettings.getState().settings.onboarded && isTauri()) {
+        setRoute('welcome');
+        await invokeSafe<void>('show_panel', undefined, undefined);
+      }
+      if (!useSettings.getState().settings.checkForUpdates) return;
+      await useUpdates.getState().check();
+      const update = useUpdates.getState().state;
+      if (update.kind === 'available') {
+        useApp.getState().announce({
+          id: `update:${update.version}`,
+          kind: 'session',
+          severity: 'info',
+          title: `Version ${update.version} is available`,
+          detail: 'Install it from Settings',
+          providerId: null,
+          timestamp: Date.now(),
+          read: false,
+        });
+      }
     })();
-  }, [loadSettings, refresh]);
+  }, [loadSettings, refresh, setRoute]);
 
   // Push the restored layout and shortcut down to the shell once.
   useEffect(() => {
@@ -60,7 +81,8 @@ export function usePanelLifecycle(): void {
         // The shell says how it was summoned; a keyboard toggle skips the
         // entrance so the answer is on screen the instant the key is pressed.
         setSummon(isSummonSource(event.payload) ? event.payload : 'edge');
-        setRoute('dashboard');
+        if (useSettings.getState().settings.onboarded) setRoute('dashboard');
+        else setRoute('welcome');
         void refresh();
       }),
       listen('panel://settings', () => {

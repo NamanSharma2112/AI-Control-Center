@@ -15,11 +15,14 @@ export function ProviderAvatar({
   providerId,
   status,
   live,
+  needsYou = status === 'waiting',
 }: {
   providerId: ProviderId;
   status: SessionStatus;
   /** Whether loops may run (panel visible, motion allowed). */
   live: boolean;
+  /** Waiting on the user specifically, rather than merely idle. */
+  needsYou?: boolean;
 }) {
   const cat = CATEGORIES[providerId];
   const Icon = cat.icon;
@@ -63,7 +66,7 @@ export function ProviderAvatar({
         </svg>
       )}
       <Icon size={14} strokeWidth={2.2} className={cn('relative', cat.text)} aria-hidden="true" />
-      {status === 'waiting' && (
+      {needsYou && (
         <span className="absolute -top-px -right-px size-2.5 rounded-full border-2 border-panel bg-warn" />
       )}
     </span>

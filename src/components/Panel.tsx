@@ -11,6 +11,7 @@ import { formatCountdown } from '@/lib/time';
 import { MetricCard } from './MetricCard';
 import { Console } from './Console';
 import { SettingsPane } from './SettingsPane';
+import { Welcome } from './Welcome';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { ProvenanceTag } from '@/components/ui/ProvenanceTag';
 import { PROVIDER_WORD } from '@/components/ui/StatusDot';
@@ -87,7 +88,9 @@ export function Panel({ open = true }: { open?: boolean }) {
     );
   };
 
-  const needsYou = sessions.filter((s) => s.status === 'waiting').length;
+  const needsYou = sessions.filter(
+    (s) => s.status === 'waiting' && s.waitingReason !== 'idle',
+  ).length;
   const running = runningCount(sessions);
 
   return (
@@ -126,7 +129,11 @@ export function Panel({ open = true }: { open?: boolean }) {
                   exit="leave"
                   className="flex flex-col @min-[720px]:h-full @min-[720px]:min-h-0"
                 >
-                  {route === 'settings' ? (
+                  {route === 'welcome' ? (
+                    <div className="flex flex-col @min-[720px]:h-full @min-[720px]:min-h-0">
+                      <Welcome />
+                    </div>
+                  ) : route === 'settings' ? (
                     <div className="flex flex-col p-2 @min-[720px]:h-full @min-[720px]:min-h-0">
                       <SettingsPane />
                     </div>

@@ -17,9 +17,20 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "Quit AI Control Center", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &settings, &separator, &quit])?;
 
+    // macOS draws menu-bar icons as templates: a black-and-alpha image it
+    // recolours for light and dark menu bars. A full-colour icon flagged as a
+    // template would render as a solid blob, so each platform gets its own.
+    #[cfg(target_os = "macos")]
+    let (icon, template) = (
+        tauri::image::Image::from_bytes(include_bytes!("../icons/tray-template.png"))?,
+        true,
+    );
+    #[cfg(not(target_os = "macos"))]
+    let (icon, template) = (app.default_window_icon().unwrap().clone(), false);
+
     TrayIconBuilder::with_id("main")
-        .icon(app.default_window_icon().unwrap().clone())
-        .icon_as_template(true)
+        .icon(icon)
+        .icon_as_template(template)
         .tooltip("AI Control Center")
         .menu(&menu)
         // The menu is for the right-click; a left-click should just open.

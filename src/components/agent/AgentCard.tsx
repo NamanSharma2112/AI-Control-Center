@@ -59,6 +59,8 @@ export const AgentCard = memo(function AgentCard({
   const done = session.status === 'completed' || session.status === 'failed';
   const waiting = session.status === 'waiting';
   const running = session.status === 'running';
+  // Only a pending tool call really needs the user; plain silence does not.
+  const needsYou = waiting && session.waitingReason !== 'idle';
 
   const headline = done
     ? `Done in ${formatDuration(session.lastActivityAt - session.startedAt)}${
@@ -92,14 +94,19 @@ export const AgentCard = memo(function AgentCard({
       {/* Header: who, what, how long. The timer and the step count share
           one right edge, so the two rows read as one aligned block. */}
       <div className="flex items-center gap-3">
-        <ProviderAvatar providerId={session.providerId} status={session.status} live={live} />
+        <ProviderAvatar
+          providerId={session.providerId}
+          status={session.status}
+          live={live}
+          needsYou={needsYou}
+        />
 
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             {!done && (
               <StepIcon
-                kind={waiting ? 'waiting' : currentKind}
-                className={cn('shrink-0', waiting ? 'text-warn' : 'text-text-2')}
+                kind={needsYou ? 'waiting' : currentKind}
+                className={cn('shrink-0', needsYou ? 'text-warn' : 'text-text-2')}
               />
             )}
             {/* The current step rolls when it changes: the old line leaves
@@ -176,7 +183,10 @@ function StatusWord({ session, selected }: { session: Session; selected: boolean
     completed: { word: 'Done', cls: 'text-text-3' },
     failed: { word: 'Failed', cls: 'text-error' },
   } as const;
-  const { word, cls } = map[session.status];
+  const { word, cls } =
+    session.status === 'waiting' && session.waitingReason === 'idle'
+      ? { word: 'Idle', cls: 'text-text-3' }
+      : map[session.status];
   return <span className={cn('t-body shrink-0', cls)}>{word}</span>;
 }
 
@@ -298,7 +308,7 @@ function Actions({ session }: { session: Session }) {
   const [confirmStop, setConfirmStop] = useState(false);
   const [copied, setCopied] = useState(false);
   const done = session.status === 'completed' || session.status === 'failed';
-  const waiting = session.status === 'waiting';
+  const waiting = session.status === 'waiting' && session.waitingReason !== 'idle';
 
   const stop = (e: MouseEvent) => {
     e.stopPropagation();

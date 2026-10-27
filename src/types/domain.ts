@@ -125,6 +125,8 @@ export interface Session {
   steps: SessionStep[];
   /** Files the session wrote, when that can be counted from its steps. */
   filesChanged?: number;
+  /** Why a waiting session is waiting: on a tool call (usually your approval) or just idle. */
+  waitingReason?: 'tool' | 'idle';
 }
 
 export interface Activity {

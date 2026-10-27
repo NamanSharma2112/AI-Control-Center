@@ -36,12 +36,15 @@ export interface Settings {
   notifyOnUsage: boolean;
   notifyOnSessionComplete: boolean;
   notifyOnError: boolean;
-  notifyOnIdle: boolean;
-  /** Minutes of silence before an idle agent is worth mentioning. */
-  idleAfterMinutes: number;
+  /** An agent is stuck on a tool call, usually waiting for approval. */
+  notifyOnNeedsYou: boolean;
 
   // Privacy
-  localOnlyMode: boolean;
+  /** The app's only network request. Off means it never goes online. */
+  checkForUpdates: boolean;
+
+  /** Whether the first-run welcome has been completed. */
+  onboarded: boolean;
   retentionDays: RetentionDays;
 }
 
@@ -63,10 +66,10 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyOnUsage: true,
   notifyOnSessionComplete: true,
   notifyOnError: true,
-  notifyOnIdle: false,
-  idleAfterMinutes: 10,
+  notifyOnNeedsYou: true,
 
-  localOnlyMode: true,
+  checkForUpdates: true,
+  onboarded: false,
   retentionDays: 30,
 };
 
@@ -93,6 +96,7 @@ interface SettingsStore {
   load: () => Promise<void>;
   set: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   setProviderConnected: (id: ProviderId, connected: boolean) => void;
+  setCap: (id: ProviderId, cap: number) => void;
   reset: () => void;
 }
 
@@ -145,6 +149,13 @@ export const useSettings = create<SettingsStore>((set, get) => ({
       ...current,
       connected: { ...current.connected, [id]: connected },
     };
+    set({ settings });
+    void persist(settings);
+  },
+
+  setCap(id, cap) {
+    const current = get().settings;
+    const settings: Settings = { ...current, caps: { ...current.caps, [id]: Math.round(cap) } };
     set({ settings });
     void persist(settings);
   },

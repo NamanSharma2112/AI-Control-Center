@@ -7,6 +7,8 @@ import { PROVIDER_IDS } from '@/providers/registry';
 import { CATEGORIES } from '@/lib/categories';
 import { Field, Segmented, Slider, Toggle } from '@/components/ui/Field';
 import { ShortcutRecorder } from './ShortcutRecorder';
+import { LimitEditor } from './LimitEditor';
+import { useUpdates } from '@/store/updates';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 import { cn } from '@/lib/cn';
 
@@ -207,8 +209,30 @@ export function SettingsPane() {
                   </div>
                 );
               })}
+              <Field label="Welcome tour" hint="See the first-run steps again">
+                <button
+                  type="button"
+                  onClick={() => setRoute('welcome')}
+                  className="t-label flex h-8 items-center rounded-full border border-rule-strong px-3.5 whitespace-nowrap text-text-1 transition-colors duration-100 hover:bg-card-hover"
+                >
+                  Show
+                </button>
+              </Field>
+            </Group>
+
+            <Group title="Plan limits">
+              <p className="t-caption px-4 pt-1 pb-1 text-text-2">
+                Providers don't share plan limits with other apps, so "% left" is measured
+                against the limit you set here.
+              </p>
+              {PROVIDER_IDS.map((id) => (
+                <LimitEditor key={id} id={id} />
+              ))}
+            </Group>
+
+            <Group title="Data">
               <Field
-                label="Data"
+                label="Source"
                 hint={mode === 'live' ? 'Live from this machine' : 'Sample data, for layout review'}
               >
                 <Segmented<'live' | 'mock'>
@@ -237,14 +261,14 @@ export function SettingsPane() {
                 />
               </Field>
               <ToggleRow id="n-usage" label="Usage warnings" checked={settings.notifyOnUsage} onChange={(v) => set('notifyOnUsage', v)} />
-              <ToggleRow id="n-session" label="Session finished" checked={settings.notifyOnSessionComplete} onChange={(v) => set('notifyOnSessionComplete', v)} />
+              <ToggleRow id="n-session" label="Agent finished" checked={settings.notifyOnSessionComplete} onChange={(v) => set('notifyOnSessionComplete', v)} />
               <ToggleRow id="n-error" label="Provider errors" checked={settings.notifyOnError} onChange={(v) => set('notifyOnError', v)} />
               <ToggleRow
-                id="n-idle"
-                label="Idle agents"
-                hint={`After ${settings.idleAfterMinutes} minutes without progress`}
-                checked={settings.notifyOnIdle}
-                onChange={(v) => set('notifyOnIdle', v)}
+                id="n-needs"
+                label="Agent needs you"
+                hint="Stuck on a tool call, usually waiting for approval"
+                checked={settings.notifyOnNeedsYou}
+                onChange={(v) => set('notifyOnNeedsYou', v)}
               />
             </Group>
 
@@ -252,11 +276,18 @@ export function SettingsPane() {
               <div className="flex items-start gap-2.5 px-4 py-3">
                 <ShieldCheck size={15} strokeWidth={1.9} className="mt-0.5 shrink-0 text-ok" />
                 <p className="t-caption text-text-2">
-                  Everything stays on this machine. Nothing is sent anywhere, and credentials
-                  live in the OS keychain, never in the app's database.
+                  Your activity never leaves this machine. The only network request is the
+                  optional update check, and credentials live in the OS keychain.
                 </p>
               </div>
-              <ToggleRow id="local-only" label="Local-only mode" hint="Blocks all outbound requests" checked={settings.localOnlyMode} onChange={(v) => set('localOnlyMode', v)} />
+              <ToggleRow
+                id="updates"
+                label="Check for updates"
+                hint="Asks GitHub for a newer version. Sends no activity"
+                checked={settings.checkForUpdates}
+                onChange={(v) => set('checkForUpdates', v)}
+              />
+              <UpdateRow />
               <Field label="Keep activity for">
                 <Segmented<string>
                   label="Activity retention"
@@ -302,6 +333,44 @@ export function SettingsPane() {
         </div>
       </div>
     </div>
+  );
+}
+
+function UpdateRow() {
+  const state = useUpdates((s) => s.state);
+  const check = useUpdates((s) => s.check);
+  const install = useUpdates((s) => s.install);
+  if (state.kind === 'unavailable') return null;
+
+  const hint =
+    state.kind === 'available'
+      ? `Version ${state.version} is ready to install`
+      : state.kind === 'installing'
+        ? `Installing ${state.version}; the app will restart`
+        : state.kind === 'current'
+          ? 'You have the latest version'
+          : state.kind === 'error'
+            ? state.message
+            : state.kind === 'checking'
+              ? 'Checking…'
+              : 'Not checked yet';
+
+  return (
+    <Field label="Updates" hint={hint}>
+      <button
+        type="button"
+        disabled={state.kind === 'checking' || state.kind === 'installing'}
+        onClick={() => void (state.kind === 'available' ? install() : check())}
+        className={cn(
+          't-label flex h-8 items-center rounded-full px-3.5 whitespace-nowrap transition-colors duration-100 disabled:opacity-50',
+          state.kind === 'available'
+            ? 'bg-primary text-primary-fg hover:bg-primary-hover'
+            : 'border border-rule-strong text-text-1 hover:bg-card-hover',
+        )}
+      >
+        {state.kind === 'available' ? 'Install and restart' : 'Check now'}
+      </button>
+    </Field>
   );
 }
 

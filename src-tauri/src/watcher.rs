@@ -1,18 +1,23 @@
 use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use crate::providers;
 use crate::window;
 
+/// While the panel is hidden, changes are passed on at most this often: often
+/// enough to notice an agent finished or needs you, rare enough to cost nothing.
+const HIDDEN_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Watches the CLIs' state directories and tells the webview when something
 /// changed, so the panel is event-driven rather than polled.
 ///
 /// Debounced at 800ms because an agent writing a transcript produces a burst
-/// of writes per turn, and re-reading on each one would be the polling we are
-/// avoiding. Events are dropped entirely while the panel is hidden: nothing
-/// is on screen to update, and the next open takes a fresh reading anyway.
+/// of writes per turn. While hidden, a change that arrives inside the interval
+/// is held rather than dropped and delivered when the interval ends, so the
+/// last write of a session (the one that says it finished) is never lost.
 pub fn start(app: AppHandle) {
     let roots = providers::watch_roots();
     if roots.is_empty() {
@@ -22,14 +27,23 @@ pub fn start(app: AppHandle) {
     std::thread::spawn(move || {
         let handle = Arc::new(app);
         let emitter = handle.clone();
+        let last_hidden = Arc::new(Mutex::new(None::<Instant>));
+        let held = Arc::new(AtomicBool::new(false));
+        let (last_cb, held_cb) = (last_hidden.clone(), held.clone());
 
         let on_change = move |result: notify_debouncer_mini::DebounceEventResult| {
             if result.is_err() {
                 return;
             }
             if !window::is_visible(&emitter) {
-                return;
+                let mut last = last_cb.lock().unwrap();
+                if last.is_some_and(|t| t.elapsed() < HIDDEN_INTERVAL) {
+                    held_cb.store(true, Ordering::Relaxed);
+                    return;
+                }
+                *last = Some(Instant::now());
             }
+            held_cb.store(false, Ordering::Relaxed);
             let _ = emitter.emit("provider://changed", ());
         };
 
@@ -41,10 +55,15 @@ pub fn start(app: AppHandle) {
             let _ = debouncer.watcher().watch(root, RecursiveMode::Recursive);
         }
 
-        // The debouncer stops watching when dropped, so this thread owns it
-        // for the life of the app.
+        // This thread owns the debouncer for the life of the app (it stops
+        // watching when dropped), and delivers any held change once its
+        // interval has passed.
         loop {
-            std::thread::sleep(Duration::from_secs(3600));
+            std::thread::sleep(HIDDEN_INTERVAL);
+            if held.swap(false, Ordering::Relaxed) {
+                *last_hidden.lock().unwrap() = Some(Instant::now());
+                let _ = handle.emit("provider://changed", ());
+            }
         }
     });
 }

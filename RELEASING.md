@@ -12,9 +12,19 @@ so you don't need either computer.
    git tag v0.2.0
    git push origin v0.2.0
    ```
-3. Open **Actions → Release** and wait for both jobs (about 15–20 minutes).
-4. Open **Releases**. A **draft** release has the `.dmg` (Mac, Apple silicon and
-   Intel) and the `-setup.exe` (Windows). Check them, then press **Publish**.
+3. Open **Actions → Release** and wait for the jobs (about 15–20 minutes).
+4. That's it. When both installers have built, a final job **publishes the
+   release by itself**, with the `.dmg` (Mac, Apple silicon and Intel) and the
+   `-setup.exe` (Windows). It also adds copies named
+   `AI-Control-Center-macOS.dmg` and `AI-Control-Center-Windows-setup.exe`, which
+   is what the README's **Download** buttons point to, so they always fetch the
+   newest version.
+
+If either installer fails to build, nothing is published: the release stays a
+draft under **Releases** (or is never created), and the Download buttons keep
+serving the previous version.
+
+To take a release back, open it under **Releases** and press **Delete**.
 
 To test a build without publishing anything: **Actions → Release → Run workflow**.
 The installers appear as downloadable artifacts on that run's page.

@@ -115,3 +115,28 @@ jobs:
             src-tauri/target/**/release/bundle/dmg/*.dmg
             src-tauri/target/**/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+  # Runs only after BOTH installers built, so a half-finished release is never
+  # published. It adds copies with fixed names (so the README download buttons
+  # never go stale) and then makes the draft release public.
+  publish:
+    name: Publish release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Name the installers and publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir dl && cd dl
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern '*.dmg' --pattern '*-setup.exe'
+          [ "$(ls *.dmg | wc -l)" -eq 1 ] || { echo "expected exactly one .dmg"; ls; exit 1; }
+          [ "$(ls *-setup.exe | wc -l)" -eq 1 ] || { echo "expected exactly one -setup.exe"; ls; exit 1; }
+          mv *.dmg AI-Control-Center-macOS.dmg
+          mv *-setup.exe AI-Control-Center-Windows-setup.exe
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            AI-Control-Center-macOS.dmg AI-Control-Center-Windows-setup.exe
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

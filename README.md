@@ -14,24 +14,38 @@ main window.
 
 Windows 11 and macOS. Local-first: no backend, no account, no telemetry.
 
+## Download
+
+[![Download for Windows](https://img.shields.io/badge/Download_for-Windows-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/NamanSharma2112/AI-Control-Center/releases/latest/download/AI-Control-Center-Windows-setup.exe)
+&nbsp;
+[![Download for Mac](https://img.shields.io/badge/Download_for-Mac-000000?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/NamanSharma2112/AI-Control-Center/releases/latest/download/AI-Control-Center-macOS.dmg)
+
+Open the file you downloaded and follow the prompts. There is nothing else to
+install: the installer includes everything the app needs.
+
 ---
 
 ## Install
 
-1. Open the [latest release](https://github.com/NamanSharma2112/AI-Control-Center/releases/latest)
-   and download the file for your computer:
-   - **Mac:** `AI.Control.Center_…_universal.dmg`. Open it and drag the app to
-     Applications.
-   - **Windows:** `AI.Control.Center_…_x64-setup.exe`. Run it. It installs for
-     your user only, so it never asks for administrator rights.
+1. Press the button for your computer above.
+   - **Mac:** open the `.dmg` and drag **AI Control Center** into Applications.
+   - **Windows:** run the `.exe`. It installs for your user only, so it never
+     asks for administrator rights, and it includes the web-view component the
+     app draws with, so nothing else needs installing first.
 2. Open **AI Control Center**. The panel appears with a short welcome.
 3. From then on it lives in the menu bar (Mac) or system tray (Windows). Push the
    cursor into the right edge of the screen, or press **⌘⇧Space** /
    **Ctrl+Shift+Space**, to open it.
 
 **If you see a security warning on first open:** current builds are not
-code-signed yet. On a Mac, right-click the app → **Open** → **Open**. On
-Windows, choose **More info** → **Run anyway**. You only need to do this once.
+code-signed yet, so both systems ask you to confirm once.
+- **Mac:** "cannot be opened because the developer cannot be verified". Close
+  the message, then right-click the app → **Open** → **Open**. (If there is no
+  Open button: System Settings → Privacy & Security → scroll down → **Open
+  Anyway**.)
+- **Windows:** "Windows protected your PC". Choose **More info** → **Run anyway**.
+
+You only need to do this once.
 
 **Connecting your agents:** nothing to connect. If you use
 [Claude Code](https://docs.claude.com/en/docs/claude-code) or

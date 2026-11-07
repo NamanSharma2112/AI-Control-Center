@@ -1,11 +1,11 @@
 import { memo, useState, type KeyboardEvent, type MouseEvent, type ReactNode, type Ref } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowUpRight, Copy, Square, SquareTerminal } from 'lucide-react';
+import { ArrowUpRight, Copy, Square, SquareTerminal, TriangleAlert } from 'lucide-react';
 import type { Session, SessionStep } from '@/types/domain';
 import { CATEGORIES } from '@/lib/categories';
 import { formatModel, plural } from '@/lib/format';
 import { formatDuration, formatElapsed } from '@/lib/time';
-import { copySessionInfo, openProject, openTerminal } from '@/lib/actions';
+import { copySessionInfo, jumpToAgent, openProject } from '@/lib/actions';
 import { useMeasure } from '@/hooks/useMeasure';
 import { useApp } from '@/store/app';
 import { cn } from '@/lib/cn';
@@ -140,6 +140,18 @@ export const AgentCard = memo(function AgentCard({
           </div>
         </div>
       </div>
+
+      {/* Stuck: shown even on a closed card, because it is the one thing
+          that wastes usage while you are not looking. */}
+      {session.stuck && (running || waiting) && (
+        <div className="mt-2.5 flex items-center gap-2 rounded-md bg-[color-mix(in_oklab,var(--warn)_13%,transparent)] px-2.5 py-1.5">
+          <TriangleAlert size={13} strokeWidth={2} className="shrink-0 text-warn" aria-hidden="true" />
+          <p className="t-caption min-w-0 truncate text-text-1">
+            Looks stuck: <span className="t-mono">{session.stuck.command}</span> failed{' '}
+            {session.stuck.failures} times
+          </p>
+        </div>
+      )}
 
       {/* Body: opens to its measured height. Motion cannot tween auto → auto,
           so the wrapper animates to a number and the inner div is measured. */}
@@ -325,10 +337,10 @@ function Actions({ session }: { session: Session }) {
       {!done && session.projectPath && (
         <PillButton
           primary={waiting}
-          onClick={() => void openTerminal(session.projectPath)}
+          onClick={() => void jumpToAgent(session)}
           icon={<SquareTerminal size={15} strokeWidth={1.9} />}
         >
-          {waiting ? 'Respond in terminal' : 'Open terminal'}
+          {waiting ? 'Respond in terminal' : 'Go to terminal'}
         </PillButton>
       )}
 

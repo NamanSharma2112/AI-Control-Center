@@ -45,3 +45,35 @@ jobs:
       - name: Rust tests
         run: cargo test --lib
         working-directory: src-tauri
+
+  # The window-focusing and tray code is written per platform and cannot be
+  # compiled on Linux, so every push also lints and tests it on Windows and
+  # macOS themselves.
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      # The Rust build embeds the built panel, so it must exist first.
+      - run: npm run build
+      - name: Rust lints
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+      - name: Rust tests
+        run: cargo test --lib
+        working-directory: src-tauri

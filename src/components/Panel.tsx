@@ -253,7 +253,9 @@ function ProviderMetric({
             ? snapshot?.provider.statusDetail ?? 'No usage limit reported'
             : usage.resetAt
               ? `Resets in ${formatCountdown(usage.resetAt, now)}`
-              : 'Reset time unknown'
+              : usage.percentage === 0
+                ? 'Full · window opens on first use'
+                : 'Reset time unknown'
       }
       series={series}
       form={form}

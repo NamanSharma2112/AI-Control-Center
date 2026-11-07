@@ -8,6 +8,7 @@ import { CATEGORIES } from '@/lib/categories';
 import { Field, Segmented, Slider, Toggle } from '@/components/ui/Field';
 import { ShortcutRecorder } from './ShortcutRecorder';
 import { LimitEditor } from './LimitEditor';
+import { HookConnect } from './HookConnect';
 import { useUpdates } from '@/store/updates';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 import { cn } from '@/lib/cn';
@@ -220,6 +221,16 @@ export function SettingsPane() {
               </Field>
             </Group>
 
+            <Group title="Instant alerts">
+              <p className="t-caption px-4 pt-1 pb-1 text-text-2">
+                Connect each agent's own notifications, so "Needs you" and "Finished" are exact
+                and instant rather than guessed from silence.
+              </p>
+              {PROVIDER_IDS.map((id) => (
+                <HookConnect key={id} id={id} />
+              ))}
+            </Group>
+
             <Group title="Plan limits">
               <p className="t-caption px-4 pt-1 pb-1 text-text-2">
                 Providers don't share plan limits with other apps, so "% left" is measured
@@ -262,6 +273,20 @@ export function SettingsPane() {
               </Field>
               <ToggleRow id="n-usage" label="Usage warnings" checked={settings.notifyOnUsage} onChange={(v) => set('notifyOnUsage', v)} />
               <ToggleRow id="n-session" label="Agent finished" checked={settings.notifyOnSessionComplete} onChange={(v) => set('notifyOnSessionComplete', v)} />
+              <ToggleRow
+                id="n-reset"
+                label="Available again"
+                hint="When a limit you were low on resets"
+                checked={settings.notifyOnReset}
+                onChange={(v) => set('notifyOnReset', v)}
+              />
+              <ToggleRow
+                id="n-stuck"
+                label="Agent looks stuck"
+                hint="The same command failing over and over"
+                checked={settings.notifyOnStuck}
+                onChange={(v) => set('notifyOnStuck', v)}
+              />
               <ToggleRow id="n-error" label="Provider errors" checked={settings.notifyOnError} onChange={(v) => set('notifyOnError', v)} />
               <ToggleRow
                 id="n-needs"

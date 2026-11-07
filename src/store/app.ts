@@ -20,7 +20,8 @@ import {
   mergeSessions,
 } from '@/lib/derive';
 import { useSettings } from './settings';
-import { invokeSafe, isTauri } from '@/lib/tauri';
+import { isTauri } from '@/lib/tauri';
+import { deliver } from '@/lib/notify';
 import type { SummonSource } from '@/lib/motion';
 
 export type ViewRoute = 'dashboard' | 'settings' | 'welcome';
@@ -37,7 +38,12 @@ interface AppState {
   projects: Project[];
   today: DaySummary;
   system: { tone: 'ok' | 'warn' | 'error' | 'idle'; label: string };
+  /** Every notice delivered so far, newest first: the ledger that stops a
+   *  state from being announced twice. Shown nowhere; notices are toasts while
+   *  the panel is open and OS notifications while it is hidden. */
   notifications: AppNotification[];
+  /** Whether the panel is on screen right now. */
+  panelVisible: boolean;
   refreshing: boolean;
   lastRefreshedAt: number | null;
   /** True once a real read has happened, so the UI can hold its skeleton. */
@@ -46,6 +52,7 @@ interface AppState {
   setMode: (mode: AdapterMode) => void;
   setRoute: (route: ViewRoute) => void;
   setSummon: (summon: SummonSource) => void;
+  setPanelVisible: (visible: boolean) => void;
   refresh: () => Promise<void>;
   dismissNotification: (id: string) => void;
   /** Adds a notice from outside provider state (e.g. an available update). */
@@ -75,6 +82,8 @@ export const useApp = create<AppState>((set, get) => ({
   today: EMPTY_TODAY,
   system: { tone: 'idle', label: 'Reading provider state' },
   notifications: [],
+  // The desktop app starts hidden in the tray; a browser preview is on screen.
+  panelVisible: !isTauri(),
   refreshing: false,
   lastRefreshedAt: null,
   hydrated: false,
@@ -90,6 +99,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   setSummon(summon) {
     set({ summon });
+  },
+
+  setPanelVisible(visible) {
+    set({ panelVisible: visible });
   },
 
   async refresh() {
@@ -124,17 +137,16 @@ export const useApp = create<AppState>((set, get) => ({
       notifications,
     });
 
-    // Anything new also goes to the OS, which shows it only while the panel
-    // is hidden: with the panel open, the in-panel notice is enough.
     for (const n of notifications) {
-      if (!before.has(n.id)) void emitSystemNotification(n);
+      if (!before.has(n.id)) deliver(n, get().panelVisible);
     }
+    scheduleResetAlerts(snapshots);
   },
 
   announce(notice) {
     if (get().notifications.some((n) => n.id === notice.id)) return;
-    set({ notifications: [notice, ...get().notifications].slice(0, 4) });
-    void emitSystemNotification(notice);
+    set({ notifications: [notice, ...get().notifications].slice(0, LEDGER_SIZE) });
+    deliver(notice, get().panelVisible);
   },
 
   dismissNotification(id) {
@@ -152,14 +164,17 @@ export const useApp = create<AppState>((set, get) => ({
   },
 }));
 
-/**
- * Notifications are generated from state, then de-duplicated against what is
- * already on screen — so a provider sitting at 88% produces one notice, not
- * one per refresh. This is the whole of "do not spam the user".
- */
+/** How many delivered notices are remembered for de-duplication. */
+const LEDGER_SIZE = 60;
+
 /** Each session's status at the last reading; null before the first. */
 let previousStatus: Map<string, string> | null = null;
 
+/**
+ * Notifications are generated from state, then de-duplicated against those
+ * already delivered — so a provider sitting at 88% produces one notice, not
+ * one per refresh. This is the whole of "do not spam the user".
+ */
 function reconcileNotifications(
   existing: AppNotification[],
   snapshots: ProviderSnapshot[],
@@ -216,14 +231,11 @@ function reconcileNotifications(
       previousStatus.set(session.id, `${session.status}:${session.waitingReason ?? ''}`);
     }
   }
-  if (prev === null) {
-    return next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 4);
-  }
-
   for (const snap of snapshots) {
     if (!snap.provider.connected) continue;
     for (const session of snap.sessions) {
-      const before = prev.get(session.id);
+      // No previous reading means no transition (and nothing below fires).
+      const before = prev?.get(session.id);
       const now = `${session.status}:${session.waitingReason ?? ''}`;
       if (before === undefined || before === now) continue;
 
@@ -264,16 +276,87 @@ function reconcileNotifications(
     }
   }
 
-  // Newest first, and never more than four on screen at once.
-  return next.sort((a, b) => b.timestamp - a.timestamp).slice(0, 4);
+  // A stuck agent is news whenever it is spotted, even on the first reading,
+  // as long as it is still live: one notice per session and command.
+  if (settings.notifyOnStuck) {
+    for (const snap of snapshots) {
+      if (!snap.provider.connected) continue;
+      for (const session of snap.sessions) {
+        if (!session.stuck) continue;
+        if (session.status !== 'running' && session.status !== 'waiting') continue;
+        if (Date.now() - session.lastActivityAt > 30 * 60_000) continue;
+        const id = `stuck:${session.id}:${session.stuck.command}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        next.push({
+          id,
+          kind: 'error',
+          severity: 'warn',
+          title: `${snap.provider.name} looks stuck in ${session.project}`,
+          detail: `"${session.stuck.command}" has failed ${session.stuck.failures} times`,
+          providerId: snap.provider.id,
+          timestamp: Date.now(),
+          read: false,
+        });
+      }
+    }
+  }
+
+  return next.sort((a, b) => b.timestamp - a.timestamp).slice(0, LEDGER_SIZE);
 }
 
-/** Fire an OS-level notification for anything new, when the app allows it. */
-export async function emitSystemNotification(n: AppNotification): Promise<void> {
-  if (!isTauri()) return;
-  await invokeSafe<void>(
-    'notify',
-    { title: n.title, body: n.detail ?? '' },
-    undefined,
-  );
+/**
+ * "Available again": when you were low on a provider, a timer is set for its
+ * reset, and the moment it passes you are told. Timers are re-armed on every
+ * reading, so a reset time that moves (a fresh provider report) is followed.
+ */
+const resetTimers = new Map<ProviderId, { at: number; handle: number }>();
+
+function scheduleResetAlerts(snapshots: ProviderSnapshot[]): void {
+  const settings = useSettings.getState().settings;
+  const now = Date.now();
+  for (const snap of snapshots) {
+    const id = snap.provider.id;
+    const usage = snap.usage;
+    const at = usage?.resetAt ?? null;
+    const low = usage !== null && 100 - usage.percentage <= settings.notifyUsageThreshold;
+    const existing = resetTimers.get(id);
+    const clear = () => {
+      if (existing) window.clearTimeout(existing.handle);
+      resetTimers.delete(id);
+    };
+
+    // 1. Alerts off, or provider disconnected: no timer.
+    if (!settings.notifyOnReset || !snap.provider.connected) {
+      clear();
+      continue;
+    }
+    // 2. Not low (or no known reset): keep a timer only if it is for this
+    //    same window — it was armed when you were low in it.
+    if (!low || at === null || at <= now) {
+      if (existing && existing.at !== at) clear();
+      continue;
+    }
+    // 3. Low, with a known reset ahead: make sure a timer is set for it.
+    if (existing?.at === at) continue;
+    clear();
+
+    const name = snap.provider.name;
+    const handle = window.setTimeout(() => {
+      resetTimers.delete(id);
+      useApp.getState().announce({
+        id: `reset:${id}:${at}`,
+        kind: 'usage',
+        severity: 'info',
+        title: `${name} is available again`,
+        detail: 'Your usage limit has reset.',
+        providerId: id,
+        timestamp: Date.now(),
+        read: false,
+      });
+      void useApp.getState().refresh();
+      // A couple of seconds late, so the provider has reset by the time we say so.
+    }, Math.min(at - Date.now() + 2_000, 2 ** 31 - 1));
+    resetTimers.set(id, { at, handle });
+  }
 }

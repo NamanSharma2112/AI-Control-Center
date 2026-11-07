@@ -20,7 +20,14 @@ const HIDDEN_INTERVAL: Duration = Duration::from_secs(30);
 /// last write of a session (the one that says it finished) is never lost.
 pub fn start(app: AppHandle) {
     let roots = providers::watch_roots();
-    if roots.is_empty() {
+    // The hook events folder, created now so it can be watched before the
+    // first hook ever fires.
+    let hook_dir = crate::hooks::events_path().and_then(|p| {
+        let dir = p.parent()?.to_path_buf();
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir)
+    });
+    if roots.is_empty() && hook_dir.is_none() {
         return;
     }
 
@@ -32,10 +39,15 @@ pub fn start(app: AppHandle) {
         let (last_cb, held_cb) = (last_hidden.clone(), held.clone());
 
         let on_change = move |result: notify_debouncer_mini::DebounceEventResult| {
-            if result.is_err() {
+            let Ok(events) = result else {
                 return;
-            }
-            if !window::is_visible(&emitter) {
+            };
+            // A hook firing is rare and is exactly the moment the user wants
+            // to hear about: never held back, even while hidden.
+            let from_hook = events
+                .iter()
+                .any(|e| e.path.file_name().is_some_and(|n| n == "hook-events.jsonl"));
+            if !from_hook && !window::is_visible(&emitter) {
                 let mut last = last_cb.lock().unwrap();
                 if last.is_some_and(|t| t.elapsed() < HIDDEN_INTERVAL) {
                     held_cb.store(true, Ordering::Relaxed);
@@ -53,6 +65,9 @@ pub fn start(app: AppHandle) {
 
         for root in &roots {
             let _ = debouncer.watcher().watch(root, RecursiveMode::Recursive);
+        }
+        if let Some(dir) = &hook_dir {
+            let _ = debouncer.watcher().watch(dir, RecursiveMode::NonRecursive);
         }
 
         // This thread owns the debouncer for the life of the app (it stops

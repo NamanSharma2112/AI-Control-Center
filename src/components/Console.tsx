@@ -10,7 +10,6 @@ import { StackedBar } from './StackedBar';
 import { AgentCard } from './agent/AgentCard';
 import { ActivityList, Empty } from './ActivityList';
 import { ProjectList } from './ProjectList';
-import { NotificationStack } from './NotificationStack';
 import { StatusDot, type Tone } from '@/components/ui/StatusDot';
 import { cn } from '@/lib/cn';
 import type { MotionIntensity } from '@/store/settings';
@@ -55,8 +54,6 @@ export function Console({
   const refreshing = useApp((s) => s.refreshing);
   const refresh = useApp((s) => s.refresh);
   const setRoute = useApp((s) => s.setRoute);
-  const notifications = useApp((s) => s.notifications);
-  const dismiss = useApp((s) => s.dismissNotification);
 
   const shares = useMemo(() => weeklySplit(history), [history]);
   const weekTotal = useMemo(() => shares.reduce((sum, s) => sum + s.count, 0), [shares]);
@@ -142,7 +139,6 @@ export function Console({
         </div>
       </header>
 
-      <NotificationStack notifications={notifications} onDismiss={dismiss} intensity={intensity} />
 
       <Forecast runs={sentence} />
 

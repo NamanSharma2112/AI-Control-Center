@@ -8,6 +8,7 @@ import { PROVIDER_IDS } from '@/providers/registry';
 import { CATEGORIES } from '@/lib/categories';
 import { Toggle } from '@/components/ui/Field';
 import { LimitEditor } from './LimitEditor';
+import { HookConnect } from './HookConnect';
 import { formatAccelerator } from './ShortcutRecorder';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 import { cn } from '@/lib/cn';
@@ -110,6 +111,16 @@ export function Welcome() {
               );
             })}
           </div>
+          {found.length > 0 && isTauri() && (
+            <div className="rounded-lg bg-card py-1.5">
+              <p className="t-caption px-4 pt-2 text-text-2">
+                Optional: connect their own alerts, so you hear the moment one needs you or finishes.
+              </p>
+              {found.map((id) => (
+                <HookConnect key={id} id={id} />
+              ))}
+            </div>
+          )}
         </div>
       ),
     },

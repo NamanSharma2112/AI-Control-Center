@@ -1,6 +1,8 @@
 mod commands;
 mod db;
 mod edge;
+mod focus;
+mod hooks;
 mod providers;
 mod secrets;
 mod shortcut;
@@ -16,6 +18,17 @@ use tauri::{Manager, WindowEvent};
 use db::Db;
 use edge::EdgeWatcher;
 use state::AppState;
+
+/// Handles `--hook <provider>` invocations from Claude Code or Codex. Returns
+/// true when this process was such a call and should exit.
+pub fn handle_hook_invocation() -> bool {
+    let args: Vec<String> = std::env::args().collect();
+    if !args.iter().any(|a| a == "--hook") {
+        return false;
+    }
+    hooks::run_hook(&args);
+    true
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -60,6 +73,10 @@ pub fn run() {
             commands::store_credential,
             commands::delete_credential,
             commands::set_autostart,
+            focus::focus_agent,
+            hooks::hook_status,
+            hooks::install_hooks,
+            hooks::uninstall_hooks,
             updater::check_update,
             updater::install_update,
         ])

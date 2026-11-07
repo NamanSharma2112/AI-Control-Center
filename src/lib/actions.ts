@@ -1,4 +1,5 @@
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
+import { toast } from 'sonner';
 import type { Session } from '@/types/domain';
 import { invokeSafe, isTauri } from '@/lib/tauri';
 import { PROVIDER_NAMES } from '@/providers/registry';
@@ -17,6 +18,30 @@ export async function openProject(path: string): Promise<void> {
 export async function openTerminal(path: string): Promise<void> {
   if (!path) return;
   await invokeSafe<void>('open_terminal', { path }, undefined);
+}
+
+interface FocusOutcome {
+  result: 'focused' | 'notFound';
+  app?: string;
+}
+
+/**
+ * Brings the agent's own terminal to the front. When its window cannot be
+ * found (an agent over SSH, a terminal we cannot see into), opens a new
+ * terminal in the project instead, which is the next most useful thing.
+ */
+export async function jumpToAgent(session: Session): Promise<void> {
+  if (!isTauri()) {
+    toast('Jumping to the terminal needs the desktop app');
+    return;
+  }
+  const outcome = await invokeSafe<FocusOutcome>(
+    'focus_agent',
+    { provider: session.providerId, projectPath: session.projectPath },
+    { result: 'notFound' },
+  );
+  if (outcome.result === 'focused') return;
+  await openTerminal(session.projectPath);
 }
 
 export async function copySessionInfo(session: Session): Promise<void> {

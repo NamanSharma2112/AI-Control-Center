@@ -38,6 +38,10 @@ export interface Settings {
   notifyOnError: boolean;
   /** An agent is stuck on a tool call, usually waiting for approval. */
   notifyOnNeedsYou: boolean;
+  /** A limit you were low on has reset. */
+  notifyOnReset: boolean;
+  /** An agent keeps failing the same command. */
+  notifyOnStuck: boolean;
 
   // Privacy
   /** The app's only network request. Off means it never goes online. */
@@ -67,6 +71,8 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyOnSessionComplete: true,
   notifyOnError: true,
   notifyOnNeedsYou: true,
+  notifyOnReset: true,
+  notifyOnStuck: true,
 
   checkForUpdates: true,
   onboarded: false,

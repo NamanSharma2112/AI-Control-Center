@@ -28,6 +28,9 @@ export interface LocalSessionDto {
   filesChanged: number;
   turnEnded: boolean;
   pendingTool: boolean;
+  stuck: { command: string; failures: number } | null;
+  /** The agent's own hook, when one fired after the transcript's last write. */
+  hook: { kind: 'needs-you' | 'finished'; message: string | null; at: number } | null;
 }
 
 export interface LocalActivityDto {
@@ -48,6 +51,9 @@ export interface LocalUsageDto {
   resetAt: number | null;
   unit: string;
   window: string;
+  /** Share used, when the provider itself reported it. */
+  usedPercent: number | null;
+  source: 'provider' | 'local';
 }
 
 export interface LocalProviderStateDto {

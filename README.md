@@ -54,6 +54,27 @@ because the app reads the session files those tools already keep on your
 computer. No sign-in, no API keys. It cannot see Claude or ChatGPT used in a web
 browser, because those don't save anything locally.
 
+**Instant alerts (optional, recommended):** in **Settings → Instant alerts**,
+press **Connect** next to Claude Code and Codex. This adds a small entry to their
+own config (`~/.claude/settings.json`, `~/.codex/config.toml`) so they tell the
+app the moment they need you or finish, instead of the app inferring it from
+silence. Your existing hooks are left alone, a backup of each file is kept, and
+**Disconnect** removes only what was added. Codex only reports finishing, so its
+"needs you" is still inferred.
+
+**What it tells you:**
+- an agent **needs you** (a permission prompt) or has **finished**;
+- an agent **looks stuck**: the same command failing three or more times;
+- a provider is **available again** when a limit you were low on resets;
+- usage is running low.
+
+These appear as toasts while the panel is open and as Windows/macOS
+notifications while it is hidden. Each can be switched off in Settings.
+
+**Go to terminal** on an agent brings its own terminal window (Windows Terminal,
+VS Code, Terminal, iTerm…) to the front; if that window can't be found it opens a
+new terminal in the project instead.
+
 **About "% left":** providers don't let other apps read plan limits, so the app
 counts your usage locally and compares it with a limit you set in
 **Settings → Plan limits**. If you don't know your limit, use the panel until you

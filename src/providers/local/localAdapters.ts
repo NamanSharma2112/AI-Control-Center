@@ -65,7 +65,20 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
     async getUsage(): Promise<Usage | null> {
       const state = await read();
       if (!state.available || !state.usage) return null;
-      const { used, cap, resetAt, unit } = state.usage;
+      const { used, cap, resetAt, unit, usedPercent, source } = state.usage;
+      // The provider's own figure, when it reported one, is shown as such.
+      if (usedPercent !== null && source === 'provider') {
+        const percentage = Math.min(100, Math.max(0, Math.round(usedPercent)));
+        return {
+          providerId: id,
+          used: percentage,
+          remaining: 100 - percentage,
+          percentage,
+          resetAt,
+          source: 'provider',
+          unit: '%',
+        };
+      }
       const percentage = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
       return {
         providerId: id,
@@ -82,15 +95,15 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
     async getLimits(): Promise<Limit[]> {
       const state = await read();
       if (!state.available || !state.usage) return [];
-      const { cap, resetAt, window } = state.usage;
+      const { cap, resetAt, window, source } = state.usage;
       return [
         {
           providerId: id,
           window: asLimitWindow(window),
-          cap,
+          cap: source === 'provider' ? null : cap,
           resetAt,
           resetLabel: window === 'weekly' ? 'Weekly' : 'Rolling window',
-          source: 'local',
+          source,
         },
       ];
     },
@@ -101,7 +114,8 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
       const now = Date.now();
       return state.sessions
         .map<Session>((s) => {
-          const { status, waitingReason } = resolveStatus(s, now);
+          const { status, waitingReason, exact } = resolveStatus(s, now);
+          const hookMessage = exact && s.hook?.kind === 'needs-you' ? s.hook.message : null;
           return {
           id: s.id,
           providerId: id,
@@ -109,10 +123,14 @@ function createLocalAdapter(id: ProviderId, name: string): ProviderAdapter {
           projectPath: s.projectPath,
           status,
           ...(waitingReason ? { waitingReason } : {}),
+          ...(exact ? { exact } : {}),
+          ...(s.stuck ? { stuck: s.stuck } : {}),
           startedAt: s.startedAt,
           lastActivityAt: s.lastActivityAt,
           currentActivity:
-            waitingReason === 'tool'
+            hookMessage
+              ? hookMessage
+              : waitingReason === 'tool'
               ? `Waiting on: ${s.currentActivity}`
               : waitingReason === 'idle'
                 ? `Idle after: ${s.currentActivity}`
@@ -174,7 +192,10 @@ const SETTLE = 15_000;
 function resolveStatus(
   s: LocalSessionDto,
   now: number,
-): { status: SessionStatus; waitingReason?: 'tool' | 'idle' } {
+): { status: SessionStatus; waitingReason?: 'tool' | 'idle'; exact?: boolean } {
+  // The agent's own hook is exact and instant: it wins over every inference.
+  if (s.hook?.kind === 'finished') return { status: 'completed', exact: true };
+  if (s.hook?.kind === 'needs-you') return { status: 'waiting', waitingReason: 'tool', exact: true };
   const idle = now - s.lastActivityAt;
   if (s.turnEnded && idle >= SETTLE) return { status: 'completed' };
   if (s.pendingTool && idle >= TOOL_WAIT) return { status: 'waiting', waitingReason: 'tool' };

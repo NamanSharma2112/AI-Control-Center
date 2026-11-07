@@ -59,6 +59,27 @@ pub struct LocalSessionDto {
     /// The agent called a tool that has not returned yet. When that lasts,
     /// the CLI is usually waiting for the user to approve the call.
     pub pending_tool: bool,
+    /// The same command failing again and again: the agent is stuck.
+    pub stuck: Option<StuckDto>,
+    /// The latest hook event for this session, when one arrived after the
+    /// transcript's last write. Exact, where the flags above are inferred.
+    pub hook: Option<HookStateDto>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StuckDto {
+    pub command: String,
+    pub failures: i64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct HookStateDto {
+    /// "needs-you" or "finished".
+    pub kind: String,
+    pub message: Option<String>,
+    pub at: i64,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -78,9 +99,15 @@ pub struct LocalActivityDto {
 pub struct LocalUsageDto {
     pub used: i64,
     pub cap: i64,
+    /// When the current window closes; None when no window is open (nothing
+    /// used since the last one ended).
     pub reset_at: Option<i64>,
     pub unit: String,
     pub window: String,
+    /// Share of the limit used, when the provider itself reported it.
+    pub used_percent: Option<f64>,
+    /// "provider" when the figure came from the provider, else "local".
+    pub source: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -146,6 +173,22 @@ enum Signal {
     TurnEnded,
 }
 
+/// A shell command being called, or its result coming back.
+#[derive(Debug, Clone, PartialEq)]
+enum ToolEvent {
+    Call { id: String, command: String },
+    Result { id: String, failed: bool },
+}
+
+/// One rate-limit window as the provider reported it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RateWindow {
+    used_percent: f64,
+    /// Epoch ms.
+    resets_at: Option<i64>,
+    minutes: Option<i64>,
+}
+
 pub fn read_provider_state(provider: &str, cap: i64) -> LocalProviderStateDto {
     match provider {
         "claude-code" => read_cli_state(ClaudeCode, cap),
@@ -173,6 +216,14 @@ trait CliLayout {
     fn model(&self, record: &Record) -> Option<String>;
     /// How this record changes what the agent is waiting on.
     fn signal(&self, record: &Record) -> Option<Signal>;
+    /// Shell commands called and their outcomes, for stuck detection.
+    fn tool_events(&self, record: &Record) -> Vec<ToolEvent>;
+    /// Rate-limit figures the provider sent back, when this record has them.
+    fn rate_limits(&self, _record: &Record, _ts: i64) -> Vec<RateWindow> {
+        Vec::new()
+    }
+    /// The provider id hook events are filed under.
+    fn id(&self) -> &'static str;
     /// Working directory, when this record carries one.
     fn cwd(&self, record: &Record) -> Option<String> {
         record.cwd.clone()
@@ -185,6 +236,52 @@ struct Codex;
 impl CliLayout for ClaudeCode {
     fn name(&self) -> &'static str {
         "Claude Code"
+    }
+    fn id(&self) -> &'static str {
+        "claude-code"
+    }
+
+    fn tool_events(&self, record: &Record) -> Vec<ToolEvent> {
+        let Some(items) = record
+            .message
+            .as_ref()
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_array())
+        else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for item in items {
+            match item.get("type").and_then(|t| t.as_str()) {
+                Some("tool_use") if item.get("name").and_then(|n| n.as_str()) == Some("Bash") => {
+                    if let (Some(id), Some(cmd)) = (
+                        item.get("id").and_then(|v| v.as_str()),
+                        item.get("input")
+                            .and_then(|i| i.get("command"))
+                            .and_then(|c| c.as_str()),
+                    ) {
+                        out.push(ToolEvent::Call {
+                            id: id.into(),
+                            command: cmd.into(),
+                        });
+                    }
+                }
+                Some("tool_result") => {
+                    if let Some(id) = item.get("tool_use_id").and_then(|v| v.as_str()) {
+                        let failed = item
+                            .get("is_error")
+                            .and_then(|e| e.as_bool())
+                            .unwrap_or(false);
+                        out.push(ToolEvent::Result {
+                            id: id.into(),
+                            failed,
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        out
     }
     fn root(&self) -> Option<PathBuf> {
         dirs::home_dir().map(|h| h.join(".claude"))
@@ -354,6 +451,64 @@ impl CliLayout for ClaudeCode {
 impl CliLayout for Codex {
     fn name(&self) -> &'static str {
         "Codex"
+    }
+    fn id(&self) -> &'static str {
+        "codex"
+    }
+
+    fn tool_events(&self, record: &Record) -> Vec<ToolEvent> {
+        let Some(payload) = record.payload.as_ref() else {
+            return Vec::new();
+        };
+        let call_id = payload
+            .get("call_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        match (payload.get("type").and_then(|t| t.as_str()), call_id) {
+            (Some("function_call" | "local_shell_call"), Some(id)) => {
+                match self.step(record) {
+                    Some(Step {
+                        kind: "command" | "test" | "git",
+                        label,
+                        ..
+                    }) => {
+                        // The label is "Ran <command>"; the command is what repeats.
+                        let command = label.strip_prefix("Ran ").unwrap_or(&label).to_string();
+                        vec![ToolEvent::Call { id, command }]
+                    }
+                    _ => Vec::new(),
+                }
+            }
+            (Some("function_call_output" | "custom_tool_call_output"), Some(id)) => {
+                match exit_code(payload.get("output")) {
+                    Some(code) => vec![ToolEvent::Result {
+                        id,
+                        failed: code != 0,
+                    }],
+                    None => Vec::new(),
+                }
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn rate_limits(&self, record: &Record, ts: i64) -> Vec<RateWindow> {
+        let Some(payload) = record.payload.as_ref() else {
+            return Vec::new();
+        };
+        if payload.get("type").and_then(|t| t.as_str()) != Some("token_count") {
+            return Vec::new();
+        }
+        let Some(limits) = payload
+            .get("rate_limits")
+            .or_else(|| payload.get("info").and_then(|i| i.get("rate_limits")))
+        else {
+            return Vec::new();
+        };
+        ["primary", "secondary"]
+            .iter()
+            .filter_map(|k| parse_rate_window(limits.get(*k)?, ts))
+            .collect()
     }
     fn root(&self) -> Option<PathBuf> {
         dirs::home_dir().map(|h| h.join(".codex"))
@@ -534,6 +689,93 @@ fn command_step(command: &str, description: Option<&str>) -> Step {
     }
 }
 
+/// The exit code from a Codex tool output, which is either JSON with
+/// `metadata.exit_code` or text containing "Exit code: N".
+fn exit_code(output: Option<&serde_json::Value>) -> Option<i64> {
+    let output = output?;
+    let text = match output {
+        serde_json::Value::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+        if let Some(code) = v
+            .get("metadata")
+            .and_then(|m| m.get("exit_code"))
+            .and_then(|c| c.as_i64())
+        {
+            return Some(code);
+        }
+    }
+    let lower = text.to_ascii_lowercase();
+    let at = lower.find("exit code:")?;
+    lower[at + "exit code:".len()..]
+        .trim_start()
+        .split(|c: char| !c.is_ascii_digit() && c != '-')
+        .next()?
+        .parse()
+        .ok()
+}
+
+fn parse_rate_window(v: &serde_json::Value, ts: i64) -> Option<RateWindow> {
+    let used_percent = v.get("used_percent")?.as_f64()?;
+    let resets_at = v
+        .get("resets_at")
+        .and_then(|r| r.as_i64())
+        .map(|s| if s < 100_000_000_000 { s * 1000 } else { s })
+        .or_else(|| {
+            v.get("resets_in_seconds")
+                .and_then(|r| r.as_i64())
+                .map(|s| ts + s * 1000)
+        });
+    Some(RateWindow {
+        used_percent,
+        resets_at,
+        minutes: v.get("window_minutes").and_then(|m| m.as_i64()),
+    })
+}
+
+/// Rolling limits open a window at the first use after the previous window
+/// closed, and reset when it closes. Given every counted use, returns the
+/// current window's start and the usage inside it, or None if none is open.
+fn current_window(mut uses: Vec<(i64, i64)>, len: i64, now: i64) -> Option<(i64, i64)> {
+    uses.retain(|(_, w)| *w > 0);
+    uses.sort_by_key(|(ts, _)| *ts);
+    let mut window: Option<(i64, i64)> = None;
+    for (ts, w) in uses {
+        window = match window {
+            Some((start, used)) if ts < start + len => Some((start, used + w)),
+            _ => Some((ts, w)),
+        };
+    }
+    window.filter(|(start, _)| now < start + len)
+}
+
+/// How many recent command outcomes to look back over.
+const STUCK_LOOKBACK: usize = 20;
+/// Failures of one command before an agent counts as stuck.
+const STUCK_FAILURES: usize = 3;
+
+/// The agent is stuck when one command has failed at least three times in
+/// its recent commands and its latest run failed too: an edit, test, fail
+/// loop shows up as the test command failing over and over.
+fn detect_stuck(outcomes: &[(String, bool)]) -> Option<StuckDto> {
+    let recent = &outcomes[outcomes.len().saturating_sub(STUCK_LOOKBACK)..];
+    let (command, _) = recent.iter().rev().find(|(_, failed)| *failed)?;
+    let latest_for_command = recent.iter().rev().find(|(c, _)| c == command)?;
+    if !latest_for_command.1 {
+        return None;
+    }
+    let failures = recent.iter().filter(|(c, f)| c == command && *f).count();
+    (failures >= STUCK_FAILURES).then(|| StuckDto {
+        command: truncate(command, 48),
+        failures: failures as i64,
+    })
+}
+
+fn normalize_command(command: &str) -> String {
+    command.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
     let Some(root) = layout.root() else {
         return LocalProviderStateDto::unavailable("Could not locate your home directory.");
@@ -559,14 +801,21 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
 
     let mut sessions = Vec::new();
     let mut activities = Vec::new();
-    let mut used: i64 = 0;
-    let window_start = now - layout.window_ms();
+    // Every counted use from the last two windows, to find the current one.
+    let since = now - 2 * layout.window_ms();
+    let mut uses: Vec<(i64, i64)> = Vec::new();
+    let mut reported: Option<(i64, Vec<RateWindow>)> = None;
 
     for (path, modified) in files {
-        let Some(scan) = scan_session(&path, &layout, window_start) else {
+        let Some(scan) = scan_session(&path, &layout, since) else {
             continue;
         };
-        used += scan.weighted;
+        uses.extend(scan.uses.iter().copied());
+        if let Some((ts, windows)) = &scan.rate_limits {
+            if reported.as_ref().is_none_or(|(prev, _)| ts > prev) {
+                reported = Some((*ts, windows.clone()));
+            }
+        }
 
         // Prefer the id the CLI recorded; fall back to the file name.
         let id = scan.session_id.clone().unwrap_or_else(|| {
@@ -637,19 +886,57 @@ fn read_cli_state<L: CliLayout>(layout: L, cap: i64) -> LocalProviderStateDto {
             files_changed,
             turn_ended: scan.turn_ended,
             pending_tool: scan.pending_tool,
+            stuck: detect_stuck(&scan.outcomes),
+            hook: None,
         });
     }
 
     sessions.sort_by_key(|s| std::cmp::Reverse(s.last_activity_at));
+    attach_hook_events(layout.id(), &mut sessions, &crate::hooks::read_events());
     activities.sort_by_key(|a| std::cmp::Reverse(a.timestamp));
     activities.truncate(MAX_ACTIVITIES);
 
-    let usage = Some(LocalUsageDto {
-        used,
-        cap: cap.max(1),
-        reset_at: Some(next_reset(&layout, now)),
-        unit: layout.unit().to_string(),
-        window: layout.window().to_string(),
+    let usage = Some(match reported {
+        // The provider's own figures win. A window whose reset time has
+        // passed is empty again, whatever it said when it was reported.
+        Some((_, windows)) => {
+            let live = windows
+                .iter()
+                .map(|w| match w.resets_at {
+                    Some(at) if at <= now => RateWindow {
+                        used_percent: 0.0,
+                        resets_at: None,
+                        ..*w
+                    },
+                    _ => *w,
+                })
+                .max_by(|a, b| a.used_percent.total_cmp(&b.used_percent));
+            LocalUsageDto {
+                used: 0,
+                cap: cap.max(1),
+                reset_at: live.and_then(|w| w.resets_at),
+                unit: layout.unit().to_string(),
+                window: match live.and_then(|w| w.minutes) {
+                    Some(m) if m > 24 * 60 => "weekly",
+                    _ => "session",
+                }
+                .to_string(),
+                used_percent: Some(live.map_or(0.0, |w| w.used_percent)),
+                source: "provider".to_string(),
+            }
+        }
+        None => {
+            let window = current_window(uses, layout.window_ms(), now);
+            LocalUsageDto {
+                used: window.map_or(0, |(_, used)| used),
+                cap: cap.max(1),
+                reset_at: window.map(|(start, _)| start + layout.window_ms()),
+                unit: layout.unit().to_string(),
+                window: layout.window().to_string(),
+                used_percent: None,
+                source: "local".to_string(),
+            }
+        }
     });
 
     LocalProviderStateDto {
@@ -740,15 +1027,38 @@ fn first_line(s: &str, max: usize) -> String {
     truncate(s.lines().next().unwrap_or(""), max)
 }
 
-/// Where the current usage window ends.
-fn next_reset<L: CliLayout>(layout: &L, now: i64) -> i64 {
-    match layout.window() {
-        // A weekly allowance resets on a boundary, not an arbitrary offset.
-        "weekly" => {
-            let week = 7 * 86_400_000;
-            ((now / week) + 1) * week
+/// Gives each session the newest hook event that belongs to it and arrived
+/// after its last transcript write. Matching is by session id; Codex's notify
+/// may carry a different id, so it falls back to the newest session in the
+/// same folder.
+fn attach_hook_events(
+    provider: &str,
+    sessions: &mut [LocalSessionDto],
+    events: &[crate::hooks::HookEvent],
+) {
+    // A hook fires just after the agent writes; allow for that ordering.
+    const SKEW_MS: i64 = 3_000;
+    for event in events.iter().filter(|e| e.provider == provider) {
+        let target = sessions
+            .iter()
+            .position(|s| event.session_id.as_deref() == Some(s.id.as_str()))
+            .or_else(|| {
+                let cwd = event.cwd.as_deref()?;
+                // Sessions are newest first, so the first match is the newest.
+                sessions.iter().position(|s| s.project_path == cwd)
+            });
+        let Some(i) = target else { continue };
+        let session = &mut sessions[i];
+        if event.ts + SKEW_MS < session.last_activity_at {
+            continue;
         }
-        _ => now + layout.window_ms(),
+        if session.hook.as_ref().is_none_or(|h| event.ts >= h.at) {
+            session.hook = Some(HookStateDto {
+                kind: event.kind.clone(),
+                message: event.message.clone(),
+                at: event.ts,
+            });
+        }
     }
 }
 
@@ -759,10 +1069,16 @@ struct SessionScan {
     cwd: Option<String>,
     model: Option<String>,
     weighted: i64,
+    /// (timestamp, weight) of each counted use since the lower bound.
+    uses: Vec<(i64, i64)>,
     event_count: i64,
     steps: Vec<(Step, i64)>,
     turn_ended: bool,
     pending_tool: bool,
+    /// Shell commands in order, with whether each failed.
+    outcomes: Vec<(String, bool)>,
+    /// The newest rate-limit report and when it was made.
+    rate_limits: Option<(i64, Vec<RateWindow>)>,
 }
 
 /// Reads the head of a transcript for its origin, and the tail for what is
@@ -779,11 +1095,15 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
         cwd: None,
         model: None,
         weighted: 0,
+        uses: Vec::new(),
         event_count: 0,
         steps: Vec::new(),
         turn_ended: false,
         pending_tool: false,
+        outcomes: Vec::new(),
+        rate_limits: None,
     };
+    let mut calls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     // Head: the first line carries the project and the start time.
     {
@@ -840,9 +1160,29 @@ fn scan_session<L: CliLayout>(path: &Path, layout: &L, window_start: i64) -> Opt
         if scan.first_ts.is_none() {
             scan.first_ts = Some(ts);
         }
-        // Only work inside the current window counts against the limit.
+        // Only uses since the lower bound can belong to the current window.
         if ts >= window_start {
-            scan.weighted += layout.weigh(&record, line);
+            let w = layout.weigh(&record, line);
+            scan.weighted += w;
+            if w > 0 {
+                scan.uses.push((ts, w));
+            }
+        }
+        for event in layout.tool_events(&record) {
+            match event {
+                ToolEvent::Call { id, command } => {
+                    calls.insert(id, normalize_command(&command));
+                }
+                ToolEvent::Result { id, failed } => {
+                    if let Some(command) = calls.remove(&id) {
+                        scan.outcomes.push((command, failed));
+                    }
+                }
+            }
+        }
+        let windows = layout.rate_limits(&record, ts);
+        if !windows.is_empty() {
+            scan.rate_limits = Some((ts, windows));
         }
         if let Some(step) = layout.step(&record) {
             scan.steps.push((step, ts));
@@ -1322,5 +1662,231 @@ mod tests {
     fn decodes_a_project_directory_name() {
         let path = Path::new("/home/u/.claude/projects/-Users-dev-code-opspulse/s.jsonl");
         assert_eq!(decode_project_dir(path), "/Users/dev/code/opspulse");
+    }
+
+    const H: i64 = 3_600_000;
+
+    #[test]
+    fn windows_open_at_first_use_and_reset_after_their_length() {
+        let len = 5 * H;
+        // Uses at 0h and 2h share a window; 6h opens a new one.
+        let uses = vec![(0, 10), (2 * H, 5), (6 * H, 7), (7 * H, 1)];
+        assert_eq!(current_window(uses.clone(), len, 8 * H), Some((6 * H, 8)));
+        // Before 6h, the first window is current with both early uses.
+        assert_eq!(
+            current_window(uses[..2].to_vec(), len, 3 * H),
+            Some((0, 15))
+        );
+        // Once a window has closed and nothing new happened, none is open.
+        assert_eq!(current_window(uses[..2].to_vec(), len, 5 * H + 1), None);
+        // Zero-weight records never open a window.
+        assert_eq!(current_window(vec![(0, 0)], len, 1), None);
+    }
+
+    #[test]
+    fn stuck_needs_three_failures_and_a_failing_latest_run() {
+        let o = |c: &str, f: bool| (c.to_string(), f);
+        let stuck = detect_stuck(&[
+            o("npm test", true),
+            o("cat a.ts", false),
+            o("npm test", true),
+            o("npm test", true),
+        ])
+        .unwrap();
+        assert_eq!((stuck.command.as_str(), stuck.failures), ("npm test", 3));
+
+        // Fixed on the latest run: not stuck any more.
+        assert!(detect_stuck(&[
+            o("npm test", true),
+            o("npm test", true),
+            o("npm test", true),
+            o("npm test", false)
+        ])
+        .is_none());
+        // Two failures is persistence, not stuck.
+        assert!(detect_stuck(&[o("npm test", true), o("npm test", true)]).is_none());
+        // Different commands failing do not add up.
+        assert!(detect_stuck(&[o("a", true), o("b", true), o("c", true)]).is_none());
+    }
+
+    #[test]
+    fn reads_codex_exit_codes_in_both_formats() {
+        let j = |s: &str| serde_json::Value::String(s.to_string());
+        assert_eq!(
+            exit_code(Some(&j(
+                r#"{"output":"...","metadata":{"exit_code":1,"duration_seconds":0.2}}"#
+            ))),
+            Some(1)
+        );
+        assert_eq!(
+            exit_code(Some(&j(r#"{"output":"ok","metadata":{"exit_code":0}}"#))),
+            Some(0)
+        );
+        assert_eq!(
+            exit_code(Some(&j("Exit code: 2\nWall time: 1s\nOutput: boom"))),
+            Some(2)
+        );
+        assert_eq!(exit_code(Some(&j("no code here"))), None);
+    }
+
+    #[test]
+    fn claude_bash_failures_feed_stuck_detection() {
+        let call = record(
+            r#"{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"npm   test"}}]}}"#,
+        );
+        let fail = record(
+            r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"1 failed"}]}}"#,
+        );
+        assert_eq!(
+            ClaudeCode.tool_events(&call),
+            vec![ToolEvent::Call {
+                id: "t1".into(),
+                command: "npm   test".into()
+            }]
+        );
+        assert_eq!(
+            ClaudeCode.tool_events(&fail),
+            vec![ToolEvent::Result {
+                id: "t1".into(),
+                failed: true
+            }]
+        );
+        assert_eq!(normalize_command("npm   test"), "npm test");
+    }
+
+    #[test]
+    fn codex_shell_calls_and_outputs_pair_up() {
+        let call = record(
+            r#"{"type":"response_item","payload":{"type":"function_call","name":"shell","call_id":"c1","arguments":"{\"command\":[\"bash\",\"-lc\",\"cargo test\"]}"}}"#,
+        );
+        let out = record(
+            r#"{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"{\"output\":\"x\",\"metadata\":{\"exit_code\":101}}"}}"#,
+        );
+        assert_eq!(
+            Codex.tool_events(&call),
+            vec![ToolEvent::Call {
+                id: "c1".into(),
+                command: "cargo test".into()
+            }]
+        );
+        assert_eq!(
+            Codex.tool_events(&out),
+            vec![ToolEvent::Result {
+                id: "c1".into(),
+                failed: true
+            }]
+        );
+    }
+
+    #[test]
+    fn codex_reported_rate_limits_are_parsed() {
+        let ts = 1_000_000;
+        let r = record(
+            r#"{"type":"event_msg","payload":{"type":"token_count","rate_limits":{
+            "primary":{"used_percent":12.5,"window_minutes":299,"resets_in_seconds":600},
+            "secondary":{"used_percent":40.0,"window_minutes":10079,"resets_at":1700000000}}}}"#,
+        );
+        let w = Codex.rate_limits(&r, ts);
+        assert_eq!(w.len(), 2);
+        assert_eq!(
+            w[0],
+            RateWindow {
+                used_percent: 12.5,
+                resets_at: Some(ts + 600_000),
+                minutes: Some(299)
+            }
+        );
+        assert_eq!(
+            w[1].resets_at,
+            Some(1_700_000_000_000),
+            "seconds become milliseconds"
+        );
+        // Other records carry nothing.
+        assert!(Codex
+            .rate_limits(
+                &record(r#"{"type":"event_msg","payload":{"type":"agent_message"}}"#),
+                ts
+            )
+            .is_empty());
+        assert!(ClaudeCode.rate_limits(&r, ts).is_empty());
+    }
+
+    fn session(id: &str, path: &str, last: i64) -> LocalSessionDto {
+        LocalSessionDto {
+            id: id.into(),
+            project: "p".into(),
+            project_path: path.into(),
+            status: "active".into(),
+            started_at: 0,
+            last_activity_at: last,
+            current_activity: String::new(),
+            event_count: 0,
+            model: None,
+            steps: Vec::new(),
+            files_changed: 0,
+            turn_ended: false,
+            pending_tool: false,
+            stuck: None,
+            hook: None,
+        }
+    }
+
+    fn hook(
+        provider: &str,
+        kind: &str,
+        id: Option<&str>,
+        cwd: Option<&str>,
+        ts: i64,
+    ) -> crate::hooks::HookEvent {
+        crate::hooks::HookEvent {
+            provider: provider.into(),
+            kind: kind.into(),
+            session_id: id.map(str::to_string),
+            cwd: cwd.map(str::to_string),
+            message: None,
+            ts,
+        }
+    }
+
+    #[test]
+    fn hook_events_attach_by_id_then_by_folder() {
+        let mut sessions = vec![session("a", "/p", 1_000), session("b", "/q", 1_000)];
+        attach_hook_events(
+            "claude-code",
+            &mut sessions,
+            &[
+                hook("claude-code", "needs-you", Some("a"), Some("/p"), 1_200),
+                hook("codex", "finished", None, Some("/q"), 1_300), // other provider: ignored
+            ],
+        );
+        assert_eq!(sessions[0].hook.as_ref().unwrap().kind, "needs-you");
+        assert!(sessions[1].hook.is_none());
+
+        // Codex: matched by folder, to the newest session there.
+        let mut codex = vec![session("new", "/q", 5_000), session("old", "/q", 1_000)];
+        attach_hook_events(
+            "codex",
+            &mut codex,
+            &[hook(
+                "codex",
+                "finished",
+                Some("thread-x"),
+                Some("/q"),
+                5_100,
+            )],
+        );
+        assert!(codex[0].hook.is_some() && codex[1].hook.is_none());
+    }
+
+    #[test]
+    fn stale_hook_events_are_ignored() {
+        // The agent kept working after the hook fired: the event is old news.
+        let mut sessions = vec![session("a", "/p", 60_000)];
+        attach_hook_events(
+            "claude-code",
+            &mut sessions,
+            &[hook("claude-code", "finished", Some("a"), None, 10_000)],
+        );
+        assert!(sessions[0].hook.is_none());
     }
 }

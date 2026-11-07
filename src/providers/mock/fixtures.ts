@@ -39,6 +39,7 @@ export interface MockProfile {
     currentActivity: string;
     stoppable?: boolean;
     model: string;
+    stuck?: { command: string; failures: number };
     /** Oldest first. A null duration is the step still in progress. */
     steps: Array<{ kind: StepKind; label: string; ms: number | null }>;
   }>;
@@ -67,6 +68,7 @@ export const codexProfile: MockProfile = {
       currentActivity: 'Running tests 10 of 12',
       stoppable: true,
       model: 'gpt-5-codex',
+      stuck: { command: 'npm test -- billing', failures: 4 },
       steps: [
         { kind: 'prompt', label: 'Fix proration rounding on plan changes', ms: 600 },
         { kind: 'read', label: 'Read 12 files', ms: 1_900 },
@@ -203,6 +205,7 @@ export function buildSessions(p: MockProfile): Session[] {
       model: s.model,
       steps: buildSteps(id, s.steps, t0 - s.lastActivityMsAgo),
       filesChanged: countEdits(s.steps),
+      ...(s.stuck ? { stuck: s.stuck } : {}),
       ...(s.status === 'waiting' ? { waitingReason: 'tool' as const } : {}),
       ...(s.stoppable ? { stoppable: true } : {}),
     };

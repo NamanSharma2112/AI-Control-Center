@@ -127,6 +127,10 @@ export interface Session {
   filesChanged?: number;
   /** Why a waiting session is waiting: on a tool call (usually your approval) or just idle. */
   waitingReason?: 'tool' | 'idle';
+  /** The same command keeps failing: the agent is going round in circles. */
+  stuck?: { command: string; failures: number };
+  /** True when the state came from the agent's own hook, not inference. */
+  exact?: boolean;
 }
 
 export interface Activity {

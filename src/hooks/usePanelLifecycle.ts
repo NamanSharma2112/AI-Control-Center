@@ -28,6 +28,7 @@ export function usePanelLifecycle(): void {
       if (!useSettings.getState().settings.onboarded && isTauri()) {
         setRoute('welcome');
         await invokeSafe<void>('show_panel', undefined, undefined);
+        useApp.getState().setPanelVisible(true);
       }
       if (!useSettings.getState().settings.checkForUpdates) return;
       await useUpdates.getState().check();
@@ -81,9 +82,13 @@ export function usePanelLifecycle(): void {
         // The shell says how it was summoned; a keyboard toggle skips the
         // entrance so the answer is on screen the instant the key is pressed.
         setSummon(isSummonSource(event.payload) ? event.payload : 'edge');
+        useApp.getState().setPanelVisible(true);
         if (useSettings.getState().settings.onboarded) setRoute('dashboard');
         else setRoute('welcome');
         void refresh();
+      }),
+      listen('panel://hidden', () => {
+        useApp.getState().setPanelVisible(false);
       }),
       listen('panel://settings', () => {
         setRoute('settings');

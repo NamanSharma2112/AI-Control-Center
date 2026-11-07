@@ -109,6 +109,9 @@ pub fn hide(app: &AppHandle) -> tauri::Result<()> {
     };
     if window.is_visible().unwrap_or(false) {
         window.hide()?;
+        // The panel shows events as toasts while open and leaves them to the
+        // OS while hidden, so it needs to know which it is.
+        let _ = app.emit("panel://hidden", ());
     }
     Ok(())
 }

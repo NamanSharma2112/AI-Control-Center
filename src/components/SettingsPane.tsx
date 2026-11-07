@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { ArrowLeft, ShieldCheck, Trash2 } from 'lucide-react';
 import { useSettings, PANEL_WIDTH } from '@/store/settings';
-import type { EdgeSide, MotionIntensity, RetentionDays, ThemeMode } from '@/store/settings';
+import type { EdgeSide, IslandMode, MotionIntensity, RetentionDays, ThemeMode } from '@/store/settings';
 import { useApp } from '@/store/app';
 import { PROVIDER_IDS } from '@/providers/registry';
 import { CATEGORIES } from '@/lib/categories';
@@ -53,6 +53,29 @@ export function SettingsPane() {
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <div className="grid gap-3 @min-[640px]:grid-cols-2">
           <div className="space-y-3">
+            <Group title="Island">
+              <Field label="Show the island" hint="Hover it for details, click it for the full panel">
+                <Segmented<IslandMode>
+                  label="Show the island"
+                  value={settings.islandMode}
+                  options={[
+                    { value: 'always', label: 'Always' },
+                    { value: 'hover', label: 'On hover' },
+                    { value: 'off', label: 'Off' },
+                  ]}
+                  onChange={(next) => {
+                    set('islandMode', next);
+                    void invokeSafe<void>('set_island_mode', { mode: next }, undefined);
+                  }}
+                />
+              </Field>
+              {settings.islandMode === 'hover' && (
+                <p className="t-caption text-text-3">
+                  Move the cursor to the top centre of the screen to bring it out.
+                </p>
+              )}
+            </Group>
+
             <Group title="Panel">
               <Field label="Screen edge" hint="Where the panel appears">
                 <Segmented<EdgeSide>
@@ -76,17 +99,6 @@ export function SettingsPane() {
                   onChange={(next) => {
                     set('edgeActivationEnabled', next);
                     void invokeSafe<void>('set_edge_watch', { enabled: next }, undefined);
-                  }}
-                />
-              </Field>
-              <Field label="Island" hint="Live status pill at the top of the screen" htmlFor="island-on">
-                <Toggle
-                  id="island-on"
-                  label="Island"
-                  checked={settings.islandEnabled}
-                  onChange={(next) => {
-                    set('islandEnabled', next);
-                    void invokeSafe<void>('set_island_enabled', { enabled: next }, undefined);
                   }}
                 />
               </Field>

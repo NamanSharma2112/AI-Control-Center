@@ -78,7 +78,7 @@ pub fn run() {
             hooks::hook_status,
             hooks::install_hooks,
             hooks::uninstall_hooks,
-            island::set_island_enabled,
+            island::set_island_mode,
             updater::check_update,
             updater::install_update,
         ])

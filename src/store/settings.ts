@@ -6,6 +6,8 @@ export type EdgeSide = 'left' | 'right';
 export type ThemeMode = 'system' | 'dark' | 'light';
 export type MotionIntensity = 'full' | 'reduced' | 'none';
 export type RetentionDays = 7 | 30 | 90 | 0;
+/** The island: always on screen, only when hovered at the top centre, or off. */
+export type IslandMode = 'always' | 'hover' | 'off';
 
 /**
  * Preferences. Intentionally small: every setting here exists because the
@@ -25,8 +27,8 @@ export interface Settings {
   shortcut: string;
   theme: ThemeMode;
   edgeActivationEnabled: boolean;
-  /** The pill at the top centre of the screen. */
-  islandEnabled: boolean;
+  /** The pill at the top centre of the screen: the main way in. */
+  islandMode: IslandMode;
 
   // Providers
   connected: Record<ProviderId, boolean>;
@@ -63,8 +65,9 @@ export const DEFAULT_SETTINGS: Settings = {
   motionIntensity: 'full',
   shortcut: 'CommandOrControl+Shift+Space',
   theme: 'system',
-  edgeActivationEnabled: true,
-  islandEnabled: true,
+  // The island is the default way in; pushing into the edge is opt-in.
+  edgeActivationEnabled: false,
+  islandMode: 'always',
 
   connected: { codex: true, 'claude-code': true },
   caps: { codex: 1500, 'claude-code': 2_000_000 },
@@ -91,7 +94,10 @@ export const PANEL_WIDTH = { min: 760, max: 1040, default: 880 } as const;
  * Settings saved by an older build may hold a width from the narrow strip
  * layout; bring anything out of range back to a value the layout can use.
  */
-function migrate(settings: Settings): Settings {
+function migrate(stored: Settings): Settings {
+  // 0.1.0 had an on/off switch for the island; it became a mode.
+  const { islandEnabled, ...settings } = stored as Settings & { islandEnabled?: boolean };
+  if (islandEnabled === false) settings.islandMode = 'off';
   const { panelWidth } = settings;
   if (panelWidth < PANEL_WIDTH.min || panelWidth > PANEL_WIDTH.max) {
     return { ...settings, panelWidth: PANEL_WIDTH.default };

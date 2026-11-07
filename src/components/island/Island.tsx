@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { BotAvatar } from 'bot-avatars';
-import { Check, Maximize2, TriangleAlert } from 'lucide-react';
+import { Check, Maximize2, SquareTerminal, TriangleAlert } from 'lucide-react';
 import type { Session } from '@/types/domain';
 import { useApp } from '@/store/app';
 import { useSettings } from '@/store/settings';
@@ -27,19 +27,26 @@ const FADE = { duration: 0.18, ease: [0.16, 1, 0.3, 1] } as const;
  * important thing your agents are doing. Hovered, the same shape grows into
  * a card with every agent, usage left, and the way into the full panel.
  *
+ * Clicking it opens the full panel; clicking an agent opens the panel on that
+ * agent.
+ *
  * The pill is the card's header: hover does not swap one thing for another,
  * it grows one shape and reveals what was beneath. The ghost is a single
  * instance throughout, so it never restarts mid-blink.
  */
 export function Island({
   expanded,
+  present = true,
   onHover,
   onOpenPanel,
 }: {
   expanded: boolean;
+  /** False while a hover-only island is fading away. */
+  present?: boolean;
   /** Browser preview only: the desktop app tracks hover natively. */
   onHover?: (hovering: boolean) => void;
-  onOpenPanel: () => void;
+  /** Opens the full panel, on one agent if given. */
+  onOpenPanel: (agentId?: string) => void;
 }) {
   const sessions = useApp((s) => s.sessions);
   const snapshots = useApp((s) => s.snapshots);
@@ -68,6 +75,8 @@ export function Island({
         <motion.div
           layout
           transition={MORPH}
+          initial={false}
+          animate={{ opacity: present ? 1 : 0, scale: present ? 1 : 0.92 }}
           onPointerEnter={() => onHover?.(true)}
           onPointerLeave={() => onHover?.(false)}
           style={{ borderRadius: expanded ? 26 : 22, width: expanded ? 440 : 'auto' }}
@@ -77,7 +86,7 @@ export function Island({
             expanded && 'max-w-[440px]',
           )}
         >
-          <Header summary={summary} expanded={expanded} now={now} counts={counts} onOpenPanel={onOpenPanel} />
+          <Header summary={summary} expanded={expanded} now={now} counts={counts} onOpenPanel={() => onOpenPanel()} />
 
           <AnimatePresence initial={false} mode="popLayout">
             {expanded && (
@@ -88,11 +97,11 @@ export function Island({
                 exit={{ opacity: 0, y: -6, filter: 'blur(3px)', transition: { duration: 0.12 } }}
                 className="px-3 pb-3"
               >
-                <Agents agents={agents} now={now} />
+                <Agents agents={agents} now={now} onOpen={onOpenPanel} />
                 <Usage now={now} />
                 <button
                   type="button"
-                  onClick={onOpenPanel}
+                  onClick={() => onOpenPanel()}
                   className="t-label mt-3 flex h-9 w-full items-center justify-center gap-1.5 rounded-xl bg-white/[0.07] text-white/85 transition-colors duration-100 hover:bg-white/[0.12] hover:text-white"
                 >
                   <Maximize2 size={13} strokeWidth={2} />
@@ -168,10 +177,17 @@ function Header({
           .join(' · ');
 
   return (
+    // The whole pill is a way into the panel; the button below is the
+    // keyboard's way in.
     <motion.div
       layout="position"
       transition={MORPH}
-      className={cn('flex items-center gap-2.5', expanded ? 'px-3 pt-3 pb-2.5' : 'h-10 py-1.5 pr-3.5 pl-2')}
+      onClick={onOpenPanel}
+      title="Open full panel"
+      className={cn(
+        'flex cursor-pointer items-center gap-2.5',
+        expanded ? 'px-3 pt-3 pb-2.5' : 'h-10 py-1.5 pr-3.5 pl-2',
+      )}
     >
       <Ghost summary={summary} expanded={expanded} />
 
@@ -205,7 +221,10 @@ function Header({
       {expanded ? (
         <button
           type="button"
-          onClick={onOpenPanel}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenPanel();
+          }}
           aria-label="Open full panel"
           title="Open full panel"
           className="grid size-8 shrink-0 place-items-center rounded-full text-white/60 transition-colors duration-100 hover:bg-white/10 hover:text-white"
@@ -232,7 +251,15 @@ function Trailing({ summary, now }: { summary: IslandSummary; now: number }) {
   return null;
 }
 
-function Agents({ agents, now }: { agents: Session[]; now: number }) {
+function Agents({
+  agents,
+  now,
+  onOpen,
+}: {
+  agents: Session[];
+  now: number;
+  onOpen: (agentId: string) => void;
+}) {
   if (agents.length === 0) {
     return (
       <p className="t-caption rounded-xl bg-white/[0.05] px-3 py-3 text-white/55">
@@ -243,28 +270,38 @@ function Agents({ agents, now }: { agents: Session[]; now: number }) {
   return (
     <ul className="space-y-1">
       {agents.map((s) => (
-        <AgentRow key={s.id} session={s} now={now} />
+        <AgentRow key={s.id} session={s} now={now} onOpen={onOpen} />
       ))}
     </ul>
   );
 }
 
-function AgentRow({ session, now }: { session: Session; now: number }) {
+function AgentRow({
+  session,
+  now,
+  onOpen,
+}: {
+  session: Session;
+  now: number;
+  onOpen: (agentId: string) => void;
+}) {
   const cat = CATEGORIES[session.providerId];
   const needsYou = session.status === 'waiting' && session.waitingReason !== 'idle';
   const done = session.status === 'completed';
   const word = needsYou ? 'Needs you' : done ? 'Done' : session.status === 'waiting' ? 'Idle' : null;
 
   return (
-    <li>
+    <li
+      className={cn(
+        'group flex items-center rounded-xl transition-colors duration-100',
+        needsYou ? 'bg-[#f5b14a]/[0.12] hover:bg-[#f5b14a]/[0.18]' : 'hover:bg-white/[0.07]',
+      )}
+    >
       <button
         type="button"
-        onClick={() => void jumpToAgent(session)}
-        title={done ? `Open ${session.project}` : `Go to ${PROVIDER_NAMES[session.providerId]} in ${session.project}`}
-        className={cn(
-          'flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors duration-100',
-          needsYou ? 'bg-[#f5b14a]/[0.12] hover:bg-[#f5b14a]/[0.18]' : 'hover:bg-white/[0.07]',
-        )}
+        onClick={() => onOpen(session.id)}
+        title={`Open ${session.project} in the panel`}
+        className="flex min-w-0 flex-1 items-center gap-2.5 py-2 pr-1 pl-2.5 text-left"
       >
         <span className={cn('size-2 shrink-0 rounded-full', cat.bg, done && 'opacity-50')} aria-hidden="true" />
         <span className="min-w-0 flex-1">
@@ -291,6 +328,19 @@ function AgentRow({ session, now }: { session: Session; now: number }) {
             <span className={cn('t-caption', needsYou ? 'text-[#f5b14a]' : 'text-white/40')}>{word}</span>
           )}
         </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => void jumpToAgent(session)}
+        aria-label={done ? `Open ${session.project}` : `Go to ${PROVIDER_NAMES[session.providerId]} in ${session.project}`}
+        title={done ? `Open ${session.project}` : `Go to its terminal`}
+        className={cn(
+          'mr-1.5 grid size-7 shrink-0 place-items-center rounded-lg text-white/45 transition-[color,background-color,opacity] duration-100',
+          'hover:bg-white/10 hover:text-white focus-visible:opacity-100',
+          needsYou ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+        )}
+      >
+        <SquareTerminal size={14} strokeWidth={2} />
       </button>
     </li>
   );

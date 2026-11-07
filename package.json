@@ -1,6 +1,6 @@
 {
   "name": "ai-control-center",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A lightweight desktop utility giving an instant, glanceable overview of your AI coding agents and provider usage.",
   "private": true,
   "type": "module",

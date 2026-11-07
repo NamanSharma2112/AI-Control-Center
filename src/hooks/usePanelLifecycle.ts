@@ -70,7 +70,7 @@ export function usePanelLifecycle(): void {
         { enabled: s.edgeActivationEnabled },
         undefined,
       );
-      void invokeSafe<void>('set_island_enabled', { enabled: s.islandEnabled }, undefined);
+      void invokeSafe<void>('set_island_mode', { mode: s.islandMode }, undefined);
     });
     return unsubscribe;
   }, []);
@@ -90,6 +90,10 @@ export function usePanelLifecycle(): void {
       }),
       listen('panel://hidden', () => {
         useApp.getState().setPanelVisible(false);
+      }),
+      // Clicking an agent in the island opens the panel on that agent.
+      listen<string>('island://open-agent', (event) => {
+        useApp.getState().focusAgent(event.payload);
       }),
       listen('panel://settings', () => {
         setRoute('settings');

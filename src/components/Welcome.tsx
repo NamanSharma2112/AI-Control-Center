@@ -53,12 +53,13 @@ export function Welcome() {
             One glance at every AI coding agent on this machine: how much usage is left, what
             each agent is doing right now, and what it did recently.
           </p>
-          <Row icon={<MousePointer2 size={16} strokeWidth={1.9} />} title="Open it from the screen edge">
-            Push the cursor into the {settings.edge} edge of your screen, or press{' '}
+          <Row icon={<MousePointer2 size={16} strokeWidth={1.9} />} title="It lives at the top of your screen">
+            The island at the top centre shows what your agents are doing. Hover it for the
+            details, click it for this panel, or press{' '}
             <kbd className="t-mono rounded-sm border border-rule-strong px-1.5 py-0.5 text-text-1">
               {formatAccelerator(settings.shortcut)}
             </kbd>
-            . Click anywhere else or press Esc to put it away.
+            . Click anywhere else or press Esc to put the panel away.
           </Row>
           <Row icon={<ShieldCheck size={16} strokeWidth={1.9} />} title="Stays on this machine">
             It reads the session files Claude Code and Codex already keep on your computer. No

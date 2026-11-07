@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { emit, listen } from '@tauri-apps/api/event';
 import { Island } from './Island';
 import { useApp } from '@/store/app';
 import { useSettings } from '@/store/settings';
@@ -13,6 +13,7 @@ import { invokeSafe, isTauri } from '@/lib/tauri';
  */
 export function IslandApp() {
   const [expanded, setExpanded] = useState(false);
+  const [present, setPresent] = useState(true);
   const refresh = useApp((s) => s.refresh);
   const loadSettings = useSettings((s) => s.load);
 
@@ -32,7 +33,12 @@ export function IslandApp() {
       listen('provider://changed', () => void refresh()),
       // Hover is tracked natively: macOS does not reliably tell an inactive
       // app's window that the pointer is over it.
-      listen<boolean>('island://hover', (e) => setExpanded(e.payload)),
+      listen<boolean>('island://hover', (e) => {
+        setExpanded(e.payload);
+        if (e.payload) setPresent(true);
+      }),
+      // Hover-only: fade the pill out just before the window hides.
+      listen('island://hide', () => setPresent(false)),
     ];
     return () => {
       for (const u of unlisten) void u.then((fn) => fn());
@@ -42,7 +48,13 @@ export function IslandApp() {
   return (
     <Island
       expanded={expanded}
-      onOpenPanel={() => void invokeSafe<void>('show_panel', undefined, undefined)}
+      present={present}
+      onOpenPanel={(agentId) => {
+        void (async () => {
+          await invokeSafe<void>('show_panel', undefined, undefined);
+          if (agentId) await emit('island://open-agent', agentId);
+        })();
+      }}
     />
   );
 }

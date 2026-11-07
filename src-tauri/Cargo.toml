@@ -1,6 +1,6 @@
 [package]
 name = "ai-control-center"
-version = "0.1.0"
+version = "0.1.1"
 description = "A glanceable overview of your AI coding agents and provider usage."
 authors = ["AI Control Center"]
 edition = "2021"

@@ -89,11 +89,22 @@ export function Console({
   }, [agents, selectedId]);
 
   const cardRefs = useRef(new Map<string, HTMLDivElement>());
+  const userSelected = useRef(false);
+
+  // An agent clicked in the island: open the Agents tab on it.
+  const focusRequest = useApp((s) => s.focusRequest);
+  useEffect(() => {
+    if (!focusRequest || !agents.some((a) => a.id === focusRequest.id)) return;
+    setTab('agents');
+    userSelected.current = true;
+    setSelectedId(focusRequest.id);
+    // Only `at` matters: the same agent clicked twice is two requests.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.at]);
 
   // Opening a card near the bottom would hide the part you opened it for, so
   // bring it into view once its body has opened. Only for a selection the
   // user made: the automatic default must never scroll the panel on open.
-  const userSelected = useRef(false);
   useEffect(() => {
     if (!selectedId || !userSelected.current) return;
     const timer = window.setTimeout(() => {
@@ -101,6 +112,7 @@ export function Console({
     }, 340);
     return () => window.clearTimeout(timer);
   }, [selectedId]);
+
   const onAgentKeyDown = useCallback(
     (event: KeyboardEvent<HTMLDivElement>, index: number) => {
       const delta =

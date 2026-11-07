@@ -44,6 +44,8 @@ interface AppState {
   notifications: AppNotification[];
   /** Whether the panel is on screen right now. */
   panelVisible: boolean;
+  /** An agent the panel should open on, asked for from the island. */
+  focusRequest: { id: string; at: number } | null;
   refreshing: boolean;
   lastRefreshedAt: number | null;
   /** True once a real read has happened, so the UI can hold its skeleton. */
@@ -53,6 +55,7 @@ interface AppState {
   setRoute: (route: ViewRoute) => void;
   setSummon: (summon: SummonSource) => void;
   setPanelVisible: (visible: boolean) => void;
+  focusAgent: (id: string) => void;
   refresh: () => Promise<void>;
   dismissNotification: (id: string) => void;
   /** Adds a notice from outside provider state (e.g. an available update). */
@@ -84,6 +87,7 @@ export const useApp = create<AppState>((set, get) => ({
   notifications: [],
   // The desktop app starts hidden in the tray; a browser preview is on screen.
   panelVisible: !isTauri(),
+  focusRequest: null,
   refreshing: false,
   lastRefreshedAt: null,
   hydrated: false,
@@ -103,6 +107,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   setPanelVisible(visible) {
     set({ panelVisible: visible });
+  },
+
+  focusAgent(id) {
+    set({ focusRequest: { id, at: Date.now() } });
   },
 
   async refresh() {

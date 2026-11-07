@@ -5,6 +5,7 @@ import { AppToaster } from '@/components/AppToaster';
 import { usePanelLifecycle } from '@/hooks/usePanelLifecycle';
 import { useTheme } from '@/hooks/useTheme';
 import { useSetting } from '@/store/settings';
+import { useApp } from '@/store/app';
 import { showToast } from '@/lib/notify';
 
 /**
@@ -19,6 +20,18 @@ export function DemoApp() {
 
   const [hover, setHover] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const islandMode = useSetting('islandMode');
+
+  // "On hover": the island stays away until the cursor reaches the top
+  // centre of the page, as it does at the top of the screen on the desktop.
+  useEffect(() => {
+    if (islandMode !== 'hover') return;
+    const onMove = (e: PointerEvent) => {
+      if (e.clientY <= 6 && Math.abs(e.clientX - window.innerWidth / 2) <= 190) setHover(true);
+    };
+    window.addEventListener('pointermove', onMove);
+    return () => window.removeEventListener('pointermove', onMove);
+  }, [islandMode]);
 
   // Lets a scripted walkthrough (the intro video) raise a notice on cue.
   useEffect(() => {
@@ -38,16 +51,20 @@ export function DemoApp() {
         <div className="fixed inset-0" onClick={() => setPanelOpen(false)} aria-hidden="true" />
       )}
       <Panel open={panelOpen} />
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 h-[440px]">
-        <Island
-          expanded={hover}
-          onHover={setHover}
-          onOpenPanel={() => {
-            setHover(false);
-            setPanelOpen(true);
-          }}
-        />
-      </div>
+      {islandMode !== 'off' && (
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-40 h-[440px]">
+          <Island
+            expanded={hover}
+            present={islandMode === 'always' || hover}
+            onHover={setHover}
+            onOpenPanel={(agentId) => {
+              setHover(false);
+              setPanelOpen(true);
+              if (agentId) useApp.getState().focusAgent(agentId);
+            }}
+          />
+        </div>
+      )}
       <AppToaster />
     </>
   );

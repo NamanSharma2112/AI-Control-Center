@@ -38,8 +38,10 @@ pub fn focus_agent(provider: String, project_path: String) -> FocusOutcome {
 }
 
 /// One process in the chain from the agent up towards the terminal.
-// Only the Windows and macOS focusers read these; the Linux stub does not.
-#[cfg_attr(not(any(windows, target_os = "macos")), allow(dead_code))]
+// Each platform's focuser reads a different subset: Windows uses the ids,
+// names and console children; macOS uses only the executable path; the Linux
+// stub reads none. Collecting all of them keeps one shared walk.
+#[allow(dead_code)]
 pub struct Link {
     pub pid: u32,
     pub name: String,

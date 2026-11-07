@@ -15,8 +15,9 @@ import { cn } from '@/lib/cn';
 
 /** The ghost from namansharma.com: bot-avatars' ghost in a soft blue. */
 const GHOST_COLOR = '#8cb2ff';
-/** The ghost is drawn once at this size and scaled, so it never re-renders. */
-const GHOST_PX = 44;
+/** The ghost is drawn once at this size and scaled down, so it stays sharp
+ * and never re-renders when the island opens. */
+const GHOST_PX = 64;
 
 /** Ease-in-out for the shape and everything in it: 250 ms to open, 150 ms to close. */
 const EASE_IN_OUT = [0.42, 0, 0.58, 1] as const;
@@ -26,28 +27,27 @@ const CLOSE = { duration: 0.15, ease: EASE_IN_OUT } as const;
 const morph = (expanded: boolean) => (expanded ? OPEN : CLOSE);
 
 /**
- * The ghost's expressions, built from what bot-avatars offers: its states,
- * a held head pose, a mouth, and things to wear. Poses are in radians.
+ * The ghost's expressions. Each one is a way of moving, never a held pose:
+ * holding a pose stops the library's own head turns, glances and hops, and
+ * the ghost goes still as a picture. So a mood is how far the head turns,
+ * how fast it all runs, how often it hops, its face, and what it wears.
  */
 const MOODS: Record<Mood, Partial<BotAvatarProps>> = {
   // Eyes shut, breathing slowly.
   sleeping: { state: 'sleeping' },
-  // Looking up and away, head a little tilted, slowed down: working it out.
-  thinking: { state: 'default', pose: { yaw: -0.45, pitch: 0.42, roll: -0.12 }, speed: 0.7 },
-  // Hopping and turning, headphones on: heads down on the task.
-  working: { state: 'working', headphones: true },
-  // Facing you, mouth open, eager.
-  'needs-you': { state: 'default', face: 'mouth', pose: { pitch: 0.16 }, speed: 1.5 },
-  // Head cocked to one side: something is not adding up.
-  stuck: { state: 'default', pose: { yaw: 0.22, roll: 0.4 }, brightness: 0.9 },
-  // A party hat: it finished.
-  done: { state: 'default', face: 'mouth', hat: 'party', accessoryColor: '#4ade80' },
-  // Looking down, a little dimmer: running low.
-  low: { state: 'default', pose: { pitch: -0.32 }, brightness: 0.82 },
+  // Slow, wide looks around through round glasses: working something out.
+  thinking: { state: 'default', glasses: 'round', turn: 1.7, speed: 0.75, jumpEvery: 0 },
+  // Hopping and spinning with headphones on: heads down on the task.
+  working: { state: 'working', headphones: true, whirl: 1, speed: 1.1 },
+  // Mouth open, quick, hopping every couple of seconds to get your attention.
+  'needs-you': { state: 'default', face: 'mouth', speed: 1.6, turn: 0.6, jumpEvery: 2.4 },
+  // Darting looks from side to side, fast: something is not adding up.
+  stuck: { state: 'default', face: 'mouth', speed: 2, turn: 2, jumpEvery: 0, brightness: 0.92 },
+  // A party hat and a little hop now and then: it finished.
+  done: { state: 'default', face: 'mouth', hat: 'party', accessoryColor: '#4ade80', jumpEvery: 3.5 },
+  // Slow and dim, barely turning: running low.
+  low: { state: 'default', speed: 0.55, turn: 0.35, jumpEvery: 0, brightness: 0.8 },
 };
-
-/** Moods with something going on, which the ghost animates even at rest. */
-const LIVELY = new Set<Mood>(['thinking', 'working', 'needs-you', 'stuck']);
 
 /**
  * The island. Collapsed, it is a pill with the ghost and one line: the most
@@ -160,7 +160,7 @@ export function Island({
 }
 
 function Ghost({ summary, expanded }: { summary: IslandSummary; expanded: boolean }) {
-  const size = expanded ? 40 : 28;
+  const size = expanded ? 44 : 32;
   return (
     <motion.div
       layout
@@ -181,11 +181,9 @@ function Ghost({ summary, expanded }: { summary: IslandSummary; expanded: boolea
           size={GHOST_PX}
           jumpHeight={14}
           jumpStretch={0.6}
+          // A thicker body than the default, so its 3D sides show as it turns.
+          depth={0.9}
           {...MOODS[summary.mood]}
-          // Always on screen, so it only animates when there is something to
-          // show: agents at work, or you looking at it. Otherwise it holds
-          // still and costs nothing.
-          paused={!LIVELY.has(summary.mood) && !expanded}
         />
       </motion.div>
     </motion.div>
@@ -233,7 +231,7 @@ function Header({
       title="Open full panel"
       className={cn(
         'flex cursor-pointer items-center gap-2.5',
-        expanded ? 'px-3 pt-3 pb-2.5' : 'h-10 py-1.5 pr-3.5 pl-2',
+        expanded ? 'px-3 pt-3 pb-2.5' : 'h-11 py-1.5 pr-3.5 pl-2',
       )}
     >
       <Ghost summary={summary} expanded={expanded} />

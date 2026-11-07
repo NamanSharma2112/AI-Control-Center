@@ -5,13 +5,11 @@ so you don't need either computer.
 
 ## Publish a version
 
-1. Set the version in **both** `package.json` and `src-tauri/tauri.conf.json`
-   (for example `0.2.0`).
-2. Commit, then tag and push:
-   ```bash
-   git tag v0.2.0
-   git push origin v0.2.0
-   ```
+1. Set the version in `package.json`, `src-tauri/tauri.conf.json` and
+   `src-tauri/Cargo.toml` (for example `0.2.0`), and commit it.
+2. Open **Actions → Release → Run workflow**, leave **publish** ticked, and
+   press **Run workflow**. (Pushing a tag such as `v0.2.0` does the same.)
+   The workflow refuses a version that is already published.
 3. Open **Actions → Release** and wait for the jobs (about 15–20 minutes).
 4. That's it. When both installers have built, a final job **publishes the
    release by itself**, with the `.dmg` (Mac, Apple silicon and Intel) and the
@@ -26,8 +24,8 @@ serving the previous version.
 
 To take a release back, open it under **Releases** and press **Delete**.
 
-To test a build without publishing anything: **Actions → Release → Run workflow**.
-The installers appear as downloadable artifacts on that run's page.
+To test a build without publishing anything: **Actions → Release → Run workflow**
+with **publish** unticked. The installers appear as downloadable artifacts on that run's page.
 
 ## Optional: remove the security warnings (code signing)
 

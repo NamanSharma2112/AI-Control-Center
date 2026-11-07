@@ -1,18 +1,77 @@
 name: Release
 
-# Push a version tag (v0.1.0) to build installers and attach them to a draft
-# GitHub Release. Run it by hand (Actions → Release → Run workflow) to build
-# the installers as downloadable artifacts without creating a release.
+# Publishes a GitHub Release with a macOS and a Windows installer, which the
+# README's download buttons link to. Two ways to start it:
+#  - Actions -> Release -> Run workflow (the "publish" box ticked): releases
+#    the version in src-tauri/tauri.conf.json, e.g. v0.1.0. The tag is
+#    created by GitHub when the release is published; nothing to push.
+#  - Pushing a version tag (v0.1.0).
+# Run by hand with "publish" unticked to only build the installers as
+# downloadable workflow artifacts.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish a release for the version in tauri.conf.json
+        type: boolean
+        default: true
 
 permissions:
   contents: write
 
 jobs:
+  # Decides the tag and creates one draft release up front, so the two
+  # platform builds upload into the same release instead of racing.
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      release_id: ${{ steps.release.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          set -euo pipefail
+          if [ "$PUBLISH" != "true" ]; then
+            echo "Build only; no release."
+            exit 0
+          fi
+          if [ "$REF_TYPE" = "tag" ]; then
+            TAG="$REF_NAME"
+          else
+            TAG="v$(jq -r .version src-tauri/tauri.conf.json)"
+          fi
+          # Never overwrite a version that is already out.
+          existing=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"" | head -n1)
+          if [ -n "$existing" ]; then
+            read -r id draft <<< "$existing"
+            if [ "$draft" != "true" ]; then
+              echo "::error::$TAG is already published. Bump the version in tauri.conf.json, Cargo.toml and package.json first."
+              exit 1
+            fi
+            echo "Reusing draft release $id for $TAG"
+          else
+            id=$(gh api "repos/$GITHUB_REPOSITORY/releases" -X POST \
+              -f tag_name="$TAG" -f target_commitish="$GITHUB_SHA" \
+              -f name="AI Control Center $TAG" -F draft=true \
+              -f body="Download the installer for your system below. See the README for first-run steps." \
+              --jq .id)
+            echo "Created draft release $id for $TAG"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release_id=$id" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -97,17 +156,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # Only a tag push creates a release; a manual run just builds.
-          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
-          releaseName: AI Control Center ${{ github.ref_name }}
-          releaseBody: Download the installer for your system below. See the README for first-run steps.
-          releaseDraft: true
-          prerelease: false
+          # Uploads into the draft from the prepare job; with no release it
+          # just builds.
+          releaseId: ${{ needs.prepare.outputs.release_id }}
           includeUpdaterJson: true
           args: ${{ matrix.args }} ${{ env.UPDATER_ARGS }}
 
-      - name: Keep the installers from a manual run
-        if: github.ref_type != 'tag'
+      - name: Keep the installers from a build-only run
+        if: needs.prepare.outputs.release_id == ''
         uses: actions/upload-artifact@v4
         with:
           name: installers-${{ runner.os }}
@@ -121,14 +177,14 @@ jobs:
   # never go stale) and then makes the draft release public.
   publish:
     name: Publish release
-    needs: build
-    if: github.ref_type == 'tag'
+    needs: [prepare, build]
+    if: needs.prepare.outputs.release_id != ''
     runs-on: ubuntu-latest
     steps:
       - name: Name the installers and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
           mkdir dl && cd dl

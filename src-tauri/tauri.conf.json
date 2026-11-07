@@ -75,7 +75,8 @@
     "shortDescription": "Glanceable AI agent and usage monitor",
     "longDescription": "A lightweight desktop utility that shows AI provider usage, active coding agents, and recent agent activity in a panel summoned from the screen edge.",
     "macOS": {
-      "minimumSystemVersion": "10.15"
+      "minimumSystemVersion": "10.15",
+      "signingIdentity": "-"
     },
     "windows": {
       "nsis": {

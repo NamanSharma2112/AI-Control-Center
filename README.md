@@ -43,6 +43,9 @@ code-signed yet, so both systems ask you to confirm once.
   the message, then right-click the app → **Open** → **Open**. (If there is no
   Open button: System Settings → Privacy & Security → scroll down → **Open
   Anyway**.)
+  If macOS says the app "is damaged and can't be opened", it is the download
+  quarantine flag, not the app: run
+  `xattr -cr "/Applications/AI Control Center.app"` in Terminal once, then open it.
 - **Windows:** "Windows protected your PC". Choose **More info** → **Run anyway**.
 
 You only need to do this once.

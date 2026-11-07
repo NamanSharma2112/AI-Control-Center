@@ -5,6 +5,7 @@ import { AppToaster } from '@/components/AppToaster';
 import { usePanelLifecycle } from '@/hooks/usePanelLifecycle';
 import { useTheme } from '@/hooks/useTheme';
 import { useSetting } from '@/store/settings';
+import { showToast } from '@/lib/notify';
 
 /**
  * A browser preview of the whole product on one page: the island at the top
@@ -18,6 +19,11 @@ export function DemoApp() {
 
   const [hover, setHover] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+
+  // Lets a scripted walkthrough (the intro video) raise a notice on cue.
+  useEffect(() => {
+    (window as unknown as { __accToast?: typeof showToast }).__accToast = showToast;
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setPanelOpen(false);

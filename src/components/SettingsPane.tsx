@@ -79,6 +79,17 @@ export function SettingsPane() {
                   }}
                 />
               </Field>
+              <Field label="Island" hint="Live status pill at the top of the screen" htmlFor="island-on">
+                <Toggle
+                  id="island-on"
+                  label="Island"
+                  checked={settings.islandEnabled}
+                  onChange={(next) => {
+                    set('islandEnabled', next);
+                    void invokeSafe<void>('set_island_enabled', { enabled: next }, undefined);
+                  }}
+                />
+              </Field>
               <Field label="Activation zone" hint="Distance from the edge" htmlFor="sens">
                 <Slider
                   id="sens"

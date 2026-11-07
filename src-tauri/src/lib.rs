@@ -3,6 +3,7 @@ mod db;
 mod edge;
 mod focus;
 mod hooks;
+mod island;
 mod providers;
 mod secrets;
 mod shortcut;
@@ -77,6 +78,7 @@ pub fn run() {
             hooks::hook_status,
             hooks::install_hooks,
             hooks::uninstall_hooks,
+            island::set_island_enabled,
             updater::check_update,
             updater::install_update,
         ])
@@ -97,6 +99,10 @@ pub fn run() {
             let edge_watcher = Arc::new(EdgeWatcher::start(handle.clone(), state.clone()));
             app.manage(commands::Watcher(edge_watcher));
 
+            let island_state = Arc::new(island::IslandState::new());
+            app.manage(island_state.clone());
+            island::start_hover_watch(handle.clone(), island_state);
+
             tray::build(&handle)?;
             watcher::start(handle.clone());
 
@@ -114,7 +120,9 @@ pub fn run() {
         .on_window_event(|window, event| match event {
             // Click-away dismissal. The window is never destroyed — the app
             // keeps running in the tray, which is the whole point.
-            WindowEvent::Focused(false) => {
+            // Only the panel dismisses itself on click-away: the island stays
+            // put whatever has focus.
+            WindowEvent::Focused(false) if window.label() == window::PANEL => {
                 let _ = window::hide(window.app_handle());
             }
             WindowEvent::CloseRequested { api, .. } => {

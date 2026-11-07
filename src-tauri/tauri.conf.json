@@ -29,6 +29,26 @@
         "focus": false,
         "visible": false,
         "acceptFirstMouse": true
+      },
+      {
+        "label": "island",
+        "title": "AI Control Center island",
+        "url": "index.html#island",
+        "width": 380,
+        "height": 64,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false,
+        "focus": false,
+        "visible": false,
+        "acceptFirstMouse": true,
+        "visibleOnAllWorkspaces": true
       }
     ],
     "security": {

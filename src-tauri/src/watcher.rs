@@ -10,6 +10,17 @@ use crate::window;
 /// While the panel is hidden, changes are passed on at most this often: often
 /// enough to notice an agent finished or needs you, rare enough to cost nothing.
 const HIDDEN_INTERVAL: Duration = Duration::from_secs(30);
+/// The island is always on screen, so while it shows it hears sooner.
+const ISLAND_INTERVAL: Duration = Duration::from_secs(3);
+
+/// How long to hold back changes while the panel is hidden.
+fn hidden_interval(app: &AppHandle) -> Duration {
+    if crate::island::is_visible(app) {
+        ISLAND_INTERVAL
+    } else {
+        HIDDEN_INTERVAL
+    }
+}
 
 /// Watches the CLIs' state directories and tells the webview when something
 /// changed, so the panel is event-driven rather than polled.
@@ -49,7 +60,7 @@ pub fn start(app: AppHandle) {
                 .any(|e| e.path.file_name().is_some_and(|n| n == "hook-events.jsonl"));
             if !from_hook && !window::is_visible(&emitter) {
                 let mut last = last_cb.lock().unwrap();
-                if last.is_some_and(|t| t.elapsed() < HIDDEN_INTERVAL) {
+                if last.is_some_and(|t| t.elapsed() < hidden_interval(&emitter)) {
                     held_cb.store(true, Ordering::Relaxed);
                     return;
                 }
@@ -74,8 +85,12 @@ pub fn start(app: AppHandle) {
         // watching when dropped), and delivers any held change once its
         // interval has passed.
         loop {
-            std::thread::sleep(HIDDEN_INTERVAL);
-            if held.swap(false, Ordering::Relaxed) {
+            std::thread::sleep(ISLAND_INTERVAL);
+            let due = last_hidden
+                .lock()
+                .unwrap()
+                .is_none_or(|t| t.elapsed() >= hidden_interval(&handle));
+            if due && held.swap(false, Ordering::Relaxed) {
                 *last_hidden.lock().unwrap() = Some(Instant::now());
                 let _ = handle.emit("provider://changed", ());
             }

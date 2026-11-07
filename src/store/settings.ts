@@ -25,6 +25,8 @@ export interface Settings {
   shortcut: string;
   theme: ThemeMode;
   edgeActivationEnabled: boolean;
+  /** The pill at the top centre of the screen. */
+  islandEnabled: boolean;
 
   // Providers
   connected: Record<ProviderId, boolean>;
@@ -62,6 +64,7 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcut: 'CommandOrControl+Shift+Space',
   theme: 'system',
   edgeActivationEnabled: true,
+  islandEnabled: true,
 
   connected: { codex: true, 'claude-code': true },
   caps: { codex: 1500, 'claude-code': 2_000_000 },

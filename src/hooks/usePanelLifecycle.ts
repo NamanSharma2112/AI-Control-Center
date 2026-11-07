@@ -70,6 +70,7 @@ export function usePanelLifecycle(): void {
         { enabled: s.edgeActivationEnabled },
         undefined,
       );
+      void invokeSafe<void>('set_island_enabled', { enabled: s.islandEnabled }, undefined);
     });
     return unsubscribe;
   }, []);

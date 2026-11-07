@@ -7,10 +7,12 @@ desktop, in about two seconds:
 2. **What are my AI agents doing right now?**
 3. **What have my agents been doing recently?**
 
-Push the cursor into the screen edge, or press the shortcut, and a panel slides
-in with provider usage, every running agent session, and a feed of what just
-happened. Click away and it is gone. It lives in the tray / menu bar and has no
-main window.
+A small island at the top centre of your screen, with a ghost that shows how
+your agents are doing (thinking, working, waiting on you, stuck, done), says the
+one thing that matters right now. Hover it for every agent and how much usage is
+left; click it for the full panel with usage, every running agent session, and
+a feed of what just happened. It lives in the tray / menu bar and has no main
+window.
 
 Windows 11 and macOS. Local-first: no backend, no account, no telemetry.
 
@@ -33,9 +35,11 @@ install: the installer includes everything the app needs.
      asks for administrator rights, and it includes the web-view component the
      app draws with, so nothing else needs installing first.
 2. Open **AI Control Center**. The panel appears with a short welcome.
-3. From then on it lives in the menu bar (Mac) or system tray (Windows). Push the
-   cursor into the right edge of the screen, or press **⌘⇧Space** /
-   **Ctrl+Shift+Space**, to open it.
+3. From then on it lives at the top of your screen and in the menu bar (Mac) or
+   system tray (Windows). Hover the island for details, click it for the full
+   panel, or press **⌘⇧Space** / **Ctrl+Shift+Space**. The island's **×** hides
+   it; **Show island** in the tray menu brings it back. In Settings it can also
+   stay hidden until you move the cursor to the top centre of the screen.
 
 **If you see a security warning on first open:** current builds are not
 code-signed yet, so both systems ask you to confirm once.
@@ -164,8 +168,8 @@ src/
 
 src-tauri/src/
   providers.rs             bounded local transcript scanning
-  window.rs                edge placement, show/hide, summon source
-  edge.rs                  adaptive cursor sampling
+  window.rs                panel placement, show/hide, summon source
+  island.rs                the island window and its hover tracking
   shortcut.rs  tray.rs  watcher.rs  db.rs  secrets.rs  commands.rs
 ```
 
@@ -218,8 +222,9 @@ optimization:
 
 - **No polling.** A debounced file watcher drives refreshes, and it drops events
   entirely while the panel is hidden.
-- **Adaptive edge sampling.** 260ms while the cursor is far from the edge, 40ms
-  within 120px, and the thread parks when edge activation is off.
+- **Adaptive hover sampling.** The island samples the cursor every 300ms while it
+  is far from the top of the screen, every 40ms near it, and the thread parks
+  when the island is off.
 - **Bounded reads.** Transcripts are filtered by mtime before being opened, at
   most 24 are read, and each is read as a 64KB tail plus one head line — never
   whole.

@@ -91,54 +91,6 @@ export function SettingsPane() {
                   }}
                 />
               </Field>
-              <Field label="Open at the edge" hint="Push the cursor into the edge" htmlFor="edge-on">
-                <Toggle
-                  id="edge-on"
-                  label="Open at the edge"
-                  checked={settings.edgeActivationEnabled}
-                  onChange={(next) => {
-                    set('edgeActivationEnabled', next);
-                    void invokeSafe<void>('set_edge_watch', { enabled: next }, undefined);
-                  }}
-                />
-              </Field>
-              <Field label="Activation zone" hint="Distance from the edge" htmlFor="sens">
-                <Slider
-                  id="sens"
-                  label="Activation zone"
-                  value={settings.edgeSensitivity}
-                  min={1}
-                  max={12}
-                  unit="px"
-                  onChange={(next) => {
-                    set('edgeSensitivity', next);
-                    void invokeSafe<void>(
-                      'set_edge_config',
-                      { sensitivity: next, dwellMs: settings.edgeDwellMs },
-                      undefined,
-                    );
-                  }}
-                />
-              </Field>
-              <Field label="Activation delay" hint="Dwell first, to avoid accidents" htmlFor="dwell">
-                <Slider
-                  id="dwell"
-                  label="Activation delay"
-                  value={settings.edgeDwellMs}
-                  min={0}
-                  max={600}
-                  step={20}
-                  unit="ms"
-                  onChange={(next) => {
-                    set('edgeDwellMs', next);
-                    void invokeSafe<void>(
-                      'set_edge_config',
-                      { sensitivity: settings.edgeSensitivity, dwellMs: next },
-                      undefined,
-                    );
-                  }}
-                />
-              </Field>
               <Field label="Panel width" htmlFor="width">
                 <Slider
                   id="width"

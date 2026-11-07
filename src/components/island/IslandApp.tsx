@@ -49,6 +49,10 @@ export function IslandApp() {
     <Island
       expanded={expanded}
       present={present}
+      // The page's own view of hover, next to the shell's cursor sampling:
+      // whichever notices first, the pointer leaving closes the card.
+      onHover={(inside) => void invokeSafe<void>('island_pointer', { inside }, undefined)}
+      onClose={() => void invokeSafe<void>('close_island', undefined, undefined)}
       onOpenPanel={(agentId) => {
         void (async () => {
           await invokeSafe<void>('show_panel', undefined, undefined);

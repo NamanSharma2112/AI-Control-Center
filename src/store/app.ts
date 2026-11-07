@@ -76,7 +76,7 @@ export const useApp = create<AppState>((set, get) => ({
   // preview there is none, so sample data is the honest thing to show.
   mode: isTauri() ? 'live' : 'mock',
   route: 'dashboard',
-  summon: 'edge',
+  summon: 'island',
   snapshots: [],
   sessions: [],
   activities: [],

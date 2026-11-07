@@ -1,6 +1,5 @@
 mod commands;
 mod db;
-mod edge;
 mod focus;
 mod hooks;
 mod island;
@@ -17,7 +16,6 @@ use std::sync::{Arc, Mutex};
 use tauri::{Manager, WindowEvent};
 
 use db::Db;
-use edge::EdgeWatcher;
 use state::AppState;
 
 /// Handles `--hook <provider>` invocations from Claude Code or Codex. Returns
@@ -61,8 +59,6 @@ pub fn run() {
             commands::apply_window_layout,
             commands::hide_panel,
             commands::show_panel,
-            commands::set_edge_watch,
-            commands::set_edge_config,
             commands::set_shortcut,
             commands::set_retention,
             commands::clear_local_data,
@@ -79,6 +75,8 @@ pub fn run() {
             hooks::install_hooks,
             hooks::uninstall_hooks,
             island::set_island_mode,
+            island::island_pointer,
+            island::close_island,
             updater::check_update,
             updater::install_update,
         ])
@@ -95,9 +93,6 @@ pub fn run() {
 
             app.manage(state.clone());
             app.manage(shortcut::BoundShortcut(Mutex::new(None)));
-
-            let edge_watcher = Arc::new(EdgeWatcher::start(handle.clone(), state.clone()));
-            app.manage(commands::Watcher(edge_watcher));
 
             let island_state = Arc::new(island::IslandState::new());
             app.manage(island_state.clone());

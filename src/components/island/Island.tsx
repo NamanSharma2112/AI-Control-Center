@@ -1,12 +1,12 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
-import { BotAvatar } from 'bot-avatars';
-import { Check, Maximize2, SquareTerminal, TriangleAlert } from 'lucide-react';
+import { BotAvatar, type BotAvatarProps } from 'bot-avatars';
+import { Check, Maximize2, SquareTerminal, TriangleAlert, X } from 'lucide-react';
 import type { Session } from '@/types/domain';
 import { useApp } from '@/store/app';
 import { useSettings } from '@/store/settings';
 import { useTicker } from '@/hooks/useTicker';
-import { islandAgents, summarize, type IslandSummary } from '@/lib/island';
+import { activitySeries, islandAgents, summarize, type IslandSummary, type Mood } from '@/lib/island';
 import { CATEGORIES } from '@/lib/categories';
 import { PROVIDER_NAMES } from '@/providers/registry';
 import { formatCountdown, formatElapsed } from '@/lib/time';
@@ -18,9 +18,34 @@ const GHOST_COLOR = '#8cb2ff';
 /** The ghost is drawn once at this size and scaled, so it never re-renders. */
 const GHOST_PX = 44;
 
-/** One spring for the whole morph, with a little of the island's bounce. */
-const MORPH = { type: 'spring', stiffness: 400, damping: 30, mass: 0.9 } as const;
-const FADE = { duration: 0.18, ease: [0.16, 1, 0.3, 1] } as const;
+/** Opening and closing: 150 ms, ease-in-out, for the shape and everything in it. */
+const EASE_IN_OUT = [0.42, 0, 0.58, 1] as const;
+const MORPH = { duration: 0.15, ease: EASE_IN_OUT } as const;
+const FADE = { duration: 0.15, ease: EASE_IN_OUT } as const;
+
+/**
+ * The ghost's expressions, built from what bot-avatars offers: its states,
+ * a held head pose, a mouth, and things to wear. Poses are in radians.
+ */
+const MOODS: Record<Mood, Partial<BotAvatarProps>> = {
+  // Eyes shut, breathing slowly.
+  sleeping: { state: 'sleeping' },
+  // Looking up and away, head a little tilted, slowed down: working it out.
+  thinking: { state: 'default', pose: { yaw: -0.45, pitch: 0.42, roll: -0.12 }, speed: 0.7 },
+  // Hopping and turning, headphones on: heads down on the task.
+  working: { state: 'working', headphones: true },
+  // Facing you, mouth open, eager.
+  'needs-you': { state: 'default', face: 'mouth', pose: { pitch: 0.16 }, speed: 1.5 },
+  // Head cocked to one side: something is not adding up.
+  stuck: { state: 'default', pose: { yaw: 0.22, roll: 0.4 }, brightness: 0.9 },
+  // A party hat: it finished.
+  done: { state: 'default', face: 'mouth', hat: 'party', accessoryColor: '#4ade80' },
+  // Looking down, a little dimmer: running low.
+  low: { state: 'default', pose: { pitch: -0.32 }, brightness: 0.82 },
+};
+
+/** Moods with something going on, which the ghost animates even at rest. */
+const LIVELY = new Set<Mood>(['thinking', 'working', 'needs-you', 'stuck']);
 
 /**
  * The island. Collapsed, it is a pill with the ghost and one line: the most
@@ -39,6 +64,7 @@ export function Island({
   present = true,
   onHover,
   onOpenPanel,
+  onClose,
 }: {
   expanded: boolean;
   /** False while a hover-only island is fading away. */
@@ -47,6 +73,8 @@ export function Island({
   onHover?: (hovering: boolean) => void;
   /** Opens the full panel, on one agent if given. */
   onOpenPanel: (agentId?: string) => void;
+  /** Hides the island (until it is turned back on). */
+  onClose: () => void;
 }) {
   const sessions = useApp((s) => s.sessions);
   const snapshots = useApp((s) => s.snapshots);
@@ -63,6 +91,11 @@ export function Island({
     [sessions, snapshots, threshold, minute],
   );
   const agents = useMemo(() => islandAgents(sessions, minute * 60_000), [sessions, minute]);
+  const activities = useApp((s) => s.activities);
+  const series = useMemo(
+    () => activitySeries(activities, sessions, minute * 60_000),
+    [activities, sessions, minute],
+  );
 
   const counts = {
     working: sessions.filter((s) => s.status === 'running').length,
@@ -86,15 +119,23 @@ export function Island({
             expanded && 'max-w-[440px]',
           )}
         >
-          <Header summary={summary} expanded={expanded} now={now} counts={counts} onOpenPanel={() => onOpenPanel()} />
+          <Header
+            summary={summary}
+            expanded={expanded}
+            now={now}
+            counts={counts}
+            series={series}
+            onOpenPanel={() => onOpenPanel()}
+            onClose={onClose}
+          />
 
           <AnimatePresence initial={false} mode="popLayout">
             {expanded && (
               <motion.div
                 key="body"
                 initial={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: { ...FADE, delay: 0.06 } }}
-                exit={{ opacity: 0, y: -6, filter: 'blur(3px)', transition: { duration: 0.12 } }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: FADE }}
+                exit={{ opacity: 0, y: -6, filter: 'blur(3px)', transition: { duration: 0.1, ease: EASE_IN_OUT } }}
                 className="px-3 pb-3"
               >
                 <Agents agents={agents} now={now} onOpen={onOpenPanel} />
@@ -135,14 +176,14 @@ function Ghost({ summary, expanded }: { summary: IslandSummary; expanded: boolea
         <BotAvatar
           type="ghost"
           color={GHOST_COLOR}
-          state={summary.ghost}
           size={GHOST_PX}
           jumpHeight={14}
           jumpStretch={0.6}
+          {...MOODS[summary.mood]}
           // Always on screen, so it only animates when there is something to
           // show: agents at work, or you looking at it. Otherwise it holds
           // still and costs nothing.
-          paused={!summary.active && !expanded}
+          paused={!LIVELY.has(summary.mood) && !expanded}
         />
       </motion.div>
     </motion.div>
@@ -161,13 +202,17 @@ function Header({
   expanded,
   now,
   counts,
+  series,
   onOpenPanel,
+  onClose,
 }: {
   summary: IslandSummary;
   expanded: boolean;
   now: number;
   counts: { working: number; needsYou: number };
+  series: number[];
   onOpenPanel: () => void;
+  onClose: () => void;
 }) {
   const status =
     counts.working + counts.needsYou === 0
@@ -209,7 +254,7 @@ function Header({
                 </p>
               </>
             ) : (
-              <p className="t-label max-w-[250px] truncate whitespace-nowrap">
+              <p className="t-label max-w-[200px] truncate whitespace-nowrap">
                 <span className={TONE_TEXT[summary.tone]}>{summary.title}</span>
                 {summary.detail && <span className="text-white/45"> · {summary.detail}</span>}
               </p>
@@ -219,22 +264,80 @@ function Header({
       </div>
 
       {expanded ? (
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenPanel();
-          }}
-          aria-label="Open full panel"
-          title="Open full panel"
-          className="grid size-8 shrink-0 place-items-center rounded-full text-white/60 transition-colors duration-100 hover:bg-white/10 hover:text-white"
-        >
-          <Maximize2 size={14} strokeWidth={2} />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <IconButton label="Open full panel" onClick={onOpenPanel}>
+            <Maximize2 size={14} strokeWidth={2} />
+          </IconButton>
+          <IconButton label="Close the island" onClick={onClose}>
+            <X size={15} strokeWidth={2.2} />
+          </IconButton>
+        </div>
       ) : (
-        <Trailing summary={summary} now={now} />
+        <>
+          <Sparkline values={series} tone={summary.tone} />
+          <Trailing summary={summary} now={now} />
+        </>
       )}
     </motion.div>
+  );
+}
+
+function IconButton({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        // The header behind it opens the panel; this button does its own thing.
+        e.stopPropagation();
+        onClick();
+      }}
+      aria-label={label}
+      title={label}
+      className="grid size-8 place-items-center rounded-full text-white/60 transition-colors duration-100 hover:bg-white/10 hover:text-white"
+    >
+      {children}
+    </button>
+  );
+}
+
+const SPARK_STROKE: Record<IslandSummary['tone'], string> = {
+  attention: '#f5b14a',
+  done: '#4ade80',
+  working: GHOST_COLOR,
+  quiet: 'rgb(255 255 255 / 0.3)',
+};
+
+/** How busy the agents have been over the last half hour, as a small line. */
+function Sparkline({ values, tone }: { values: number[]; tone: IslandSummary['tone'] }) {
+  const W = 40;
+  const H = 16;
+  const max = Math.max(1, ...values);
+  const step = W / Math.max(1, values.length - 1);
+  const points = values.map((v, i) => [i * step, H - 1.5 - (v / max) * (H - 3)] as const);
+  const line = points.map(([x, y], i) => `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join(' ');
+  const area = `${line} L${W} ${H} L0 ${H} Z`;
+  const stroke = SPARK_STROKE[tone];
+  const total = values.reduce((a, b) => a + b, 0);
+  return (
+    <svg
+      width={W}
+      height={H}
+      viewBox={`0 0 ${W} ${H}`}
+      className="shrink-0 overflow-visible"
+      role="img"
+      aria-label={`${total} agent actions in the last half hour`}
+    >
+      <path d={area} fill={stroke} opacity={0.14} />
+      <path d={line} fill="none" stroke={stroke} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
   );
 }
 

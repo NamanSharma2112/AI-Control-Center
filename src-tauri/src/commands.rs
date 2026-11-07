@@ -7,13 +7,10 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tauri_plugin_notification::NotificationExt;
 
-use crate::edge::EdgeWatcher;
 use crate::providers::{self, LocalProviderStateDto};
 use crate::secrets;
 use crate::state::AppState;
 use crate::window;
-
-pub struct Watcher(pub Arc<EdgeWatcher>);
 
 #[tauri::command]
 pub fn read_provider_state(
@@ -84,17 +81,7 @@ pub fn hide_panel(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn show_panel(app: AppHandle, state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let (edge, width) = state.edge_and_width();
-    window::show(&app, &edge, width, window::Summon::Tray).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn set_edge_watch(enabled: bool, watcher: State<'_, Watcher>) {
-    watcher.0.set_enabled(enabled);
-}
-
-#[tauri::command]
-pub fn set_edge_config(sensitivity: i64, dwell_ms: u64, watcher: State<'_, Watcher>) {
-    watcher.0.configure(sensitivity, dwell_ms);
+    window::show(&app, &edge, width, window::Summon::Island).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

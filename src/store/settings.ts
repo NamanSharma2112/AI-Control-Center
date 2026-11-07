@@ -17,16 +17,12 @@ export type IslandMode = 'always' | 'hover' | 'off';
 export interface Settings {
   // General
   launchAtStartup: boolean;
+  /** Which side of the screen the panel sits on. */
   edge: EdgeSide;
-  /** Pixels from the edge that arm activation. 1–12. */
-  edgeSensitivity: number;
-  /** ms the cursor must dwell in the hot zone before the panel opens. */
-  edgeDwellMs: number;
   panelWidth: number;
   motionIntensity: MotionIntensity;
   shortcut: string;
   theme: ThemeMode;
-  edgeActivationEnabled: boolean;
   /** The pill at the top centre of the screen: the main way in. */
   islandMode: IslandMode;
 
@@ -59,14 +55,10 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   launchAtStartup: false,
   edge: 'right',
-  edgeSensitivity: 3,
-  edgeDwellMs: 120,
   panelWidth: 880,
   motionIntensity: 'full',
   shortcut: 'CommandOrControl+Shift+Space',
   theme: 'system',
-  // The island is the default way in; pushing into the edge is opt-in.
-  edgeActivationEnabled: false,
   islandMode: 'always',
 
   connected: { codex: true, 'claude-code': true },
@@ -95,8 +87,20 @@ export const PANEL_WIDTH = { min: 760, max: 1040, default: 880 } as const;
  * layout; bring anything out of range back to a value the layout can use.
  */
 function migrate(stored: Settings): Settings {
-  // 0.1.0 had an on/off switch for the island; it became a mode.
-  const { islandEnabled, ...settings } = stored as Settings & { islandEnabled?: boolean };
+  // 0.1.0 had an on/off switch for the island; it became a mode. Opening the
+  // panel from the screen edge went away when the island took its place.
+  const {
+    islandEnabled,
+    edgeActivationEnabled: _a,
+    edgeSensitivity: _b,
+    edgeDwellMs: _c,
+    ...settings
+  } = stored as Settings & {
+    islandEnabled?: boolean;
+    edgeActivationEnabled?: boolean;
+    edgeSensitivity?: number;
+    edgeDwellMs?: number;
+  };
   if (islandEnabled === false) settings.islandMode = 'off';
   const { panelWidth } = settings;
   if (panelWidth < PANEL_WIDTH.min || panelWidth > PANEL_WIDTH.max) {

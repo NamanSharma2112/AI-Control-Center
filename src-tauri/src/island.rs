@@ -29,8 +29,9 @@ const TOP_GAP: f64 = 6.0;
 /// How long the card stays after the cursor leaves, so a pass over its
 /// edge does not snap it shut.
 const LEAVE_GRACE: Duration = Duration::from_millis(220);
-/// Time the card's closing animation takes before the window shrinks.
-const CLOSE_ANIMATION: Duration = Duration::from_millis(300);
+/// Time the card's closing animation (150 ms) takes before the window
+/// shrinks, with a frame to spare.
+const CLOSE_ANIMATION: Duration = Duration::from_millis(170);
 /// Time the pill takes to fade before a hover-only island hides.
 const FADE_OUT: Duration = Duration::from_millis(160);
 /// How far below the top of the usable screen (logical px) the cursor calls
@@ -44,6 +45,11 @@ pub struct IslandState {
     /// Hidden until the cursor reaches the top centre of the screen, rather
     /// than always on screen.
     hover_only: AtomicBool,
+    /// The page saw the pointer leave or enter the card. A second witness to
+    /// hover next to the cursor sampling, so a missed sample can never leave
+    /// the card open with the cursor far away.
+    page_left: AtomicBool,
+    page_entered: AtomicBool,
 }
 
 impl IslandState {
@@ -51,6 +57,8 @@ impl IslandState {
         Self {
             enabled: AtomicBool::new(false),
             hover_only: AtomicBool::new(false),
+            page_left: AtomicBool::new(false),
+            page_entered: AtomicBool::new(false),
         }
     }
 }
@@ -148,11 +156,17 @@ pub fn start_hover_watch(app: AppHandle, state: Arc<IslandState>) {
         let mut expanded = false;
         let mut left_at: Option<Instant> = None;
         let mut geometry: Option<(Screen, Instant)> = None;
+        // After the page closed the card, cursor sampling may not reopen it
+        // until it has seen the cursor outside once: if sampling and the page
+        // disagree, the page wins, and nothing flaps.
+        let mut sampling_blocked = false;
 
         loop {
             if !state.enabled.load(Ordering::Relaxed) {
                 expanded = false;
                 left_at = None;
+                state.page_left.store(false, Ordering::Relaxed);
+                state.page_entered.store(false, Ordering::Relaxed);
                 thread::sleep(Duration::from_millis(500));
                 continue;
             }
@@ -165,6 +179,11 @@ pub fn start_hover_watch(app: AppHandle, state: Arc<IslandState>) {
             let (Some(win), Ok(cursor), Some((scr, _))) =
                 (window(&app), app.cursor_position(), geometry)
             else {
+                // No cursor to go by: never leave the card open on a guess.
+                if expanded {
+                    collapse(&app, hover_only);
+                    expanded = false;
+                }
                 thread::sleep(Duration::from_millis(400));
                 continue;
             };
@@ -178,59 +197,48 @@ pub fn start_hover_watch(app: AppHandle, state: Arc<IslandState>) {
             let (right, bottom) = (left + size.width as f64, top + size.height as f64);
             // The strip between the top of the screen and the island counts
             // as the island, so reaching up for it never closes it.
-            let inside = visible
+            let mut inside = visible
                 && cursor.x >= left
                 && cursor.x <= right
                 && cursor.y >= scr.top.min(top)
                 && cursor.y <= bottom;
+            if sampling_blocked {
+                if inside {
+                    inside = false;
+                } else {
+                    sampling_blocked = false;
+                }
+            }
 
-            if hover_only && !visible && !expanded {
+            if state.page_left.swap(false, Ordering::Relaxed) && expanded {
+                collapse(&app, hover_only);
+                expanded = false;
+                left_at = None;
+                sampling_blocked = true;
+            } else if state.page_entered.swap(false, Ordering::Relaxed) && visible && !expanded {
+                sampling_blocked = false;
+                expanded = true;
+                left_at = None;
+                open(&app, false);
+            } else if hover_only && !visible && !expanded {
                 if in_reveal_zone((cursor.x, cursor.y), &scr) {
                     expanded = true;
                     left_at = None;
-                    let a = app.clone();
-                    let _ = app.run_on_main_thread(move || {
-                        let _ = place(&a, true);
-                        if let Some(w) = window(&a) {
-                            let _ = w.show();
-                            let _ = w.set_always_on_top(true);
-                        }
-                        let _ = a.emit_to(ISLAND, "island://hover", true);
-                    });
+                    open(&app, true);
                 }
             } else if inside {
                 left_at = None;
                 if !expanded {
                     expanded = true;
-                    let a = app.clone();
-                    // Grow the window first, then let the card morph into it.
-                    let _ = app.run_on_main_thread(move || {
-                        let _ = place(&a, true);
-                        let _ = a.emit_to(ISLAND, "island://hover", true);
-                    });
+                    open(&app, false);
                 }
             } else if expanded {
                 match left_at {
                     None => left_at = Some(Instant::now()),
                     Some(t) if t.elapsed() >= LEAVE_GRACE => {
-                        let _ = app.emit_to(ISLAND, "island://hover", false);
-                        thread::sleep(CLOSE_ANIMATION);
-                        if hover_only {
-                            // Let the pill fade before the window goes.
-                            let _ = app.emit_to(ISLAND, "island://hide", ());
-                            thread::sleep(FADE_OUT);
-                        }
+                        collapse(&app, hover_only);
                         expanded = false;
                         left_at = None;
-                        let a = app.clone();
-                        let _ = app.run_on_main_thread(move || {
-                            if hover_only {
-                                if let Some(w) = window(&a) {
-                                    let _ = w.hide();
-                                }
-                            }
-                            let _ = place(&a, false);
-                        });
                     }
                     Some(_) => {}
                 }
@@ -246,6 +254,68 @@ pub fn start_hover_watch(app: AppHandle, state: Arc<IslandState>) {
             }));
         }
     });
+}
+
+/// Grows the window, then lets the card open into it. `reveal` also brings
+/// a hidden (hover-only) island out first.
+fn open(app: &AppHandle, reveal: bool) {
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let _ = place(&a, true);
+        if reveal {
+            if let Some(w) = window(&a) {
+                let _ = w.show();
+                let _ = w.set_always_on_top(true);
+            }
+        }
+        let _ = a.emit_to(ISLAND, "island://hover", true);
+    });
+}
+
+/// Closes the card, waits for its animation, then shrinks the window (and,
+/// for a hover-only island, fades and hides it).
+fn collapse(app: &AppHandle, hover_only: bool) {
+    let _ = app.emit_to(ISLAND, "island://hover", false);
+    thread::sleep(CLOSE_ANIMATION);
+    if hover_only {
+        let _ = app.emit_to(ISLAND, "island://hide", ());
+        thread::sleep(FADE_OUT);
+    }
+    let a = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if hover_only {
+            if let Some(w) = window(&a) {
+                let _ = w.hide();
+            }
+        }
+        let _ = place(&a, false);
+    });
+}
+
+/// The page saw the pointer enter (`true`) or leave (`false`) the card.
+#[tauri::command]
+pub fn island_pointer(inside: bool, state: tauri::State<'_, Arc<IslandState>>) {
+    let flag = if inside {
+        &state.page_entered
+    } else {
+        &state.page_left
+    };
+    flag.store(true, Ordering::Relaxed);
+}
+
+/// The island's own close button: hides it until it is turned back on from
+/// the tray or Settings. The panel hears about it and saves the setting.
+#[tauri::command]
+pub fn close_island(app: AppHandle) -> Result<(), String> {
+    set_mode(&app, "off").map_err(|e| e.to_string())?;
+    app.emit("island://mode", "off").map_err(|e| e.to_string())
+}
+
+/// From the tray: brings a closed island back.
+pub fn reopen(app: &AppHandle) {
+    if set_mode(app, "always").is_ok() {
+        let _ = app.emit("island://mode", "always");
+    }
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@ import { Panel } from '@/components/Panel';
 import { AppToaster } from '@/components/AppToaster';
 import { usePanelLifecycle } from '@/hooks/usePanelLifecycle';
 import { useTheme } from '@/hooks/useTheme';
-import { useSetting } from '@/store/settings';
+import { useSetting, useSettings } from '@/store/settings';
 import { useApp } from '@/store/app';
 import { showToast } from '@/lib/notify';
 
@@ -33,6 +33,18 @@ export function DemoApp() {
     return () => window.removeEventListener('pointermove', onMove);
   }, [islandMode]);
 
+  // Leaving the page altogether (out of the top of a preview frame, say)
+  // fires no pointerleave on the card, so close it from the page too.
+  useEffect(() => {
+    const close = () => setHover(false);
+    document.documentElement.addEventListener('mouseleave', close);
+    window.addEventListener('blur', close);
+    return () => {
+      document.documentElement.removeEventListener('mouseleave', close);
+      window.removeEventListener('blur', close);
+    };
+  }, []);
+
   // Lets a scripted walkthrough (the intro video) raise a notice on cue.
   useEffect(() => {
     (window as unknown as { __accToast?: typeof showToast }).__accToast = showToast;
@@ -57,6 +69,10 @@ export function DemoApp() {
             expanded={hover}
             present={islandMode === 'always' || hover}
             onHover={setHover}
+            onClose={() => {
+              setHover(false);
+              useSettings.getState().set('islandMode', 'off');
+            }}
             onOpenPanel={(agentId) => {
               setHover(false);
               setPanelOpen(true);

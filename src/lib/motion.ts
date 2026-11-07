@@ -5,7 +5,7 @@ import type { EdgeSide, MotionIntensity } from '@/store/settings';
  * How the panel was summoned. It changes how the panel should arrive, so the
  * shell reports it rather than the webview guessing.
  */
-export type SummonSource = 'edge' | 'shortcut' | 'tray';
+export type SummonSource = 'island' | 'shortcut' | 'tray';
 
 /**
  * Motion system.
@@ -63,7 +63,7 @@ const STAGGER_CAP = 7;
 export function panelVariants(
   edge: EdgeSide,
   intensity: MotionIntensity,
-  source: SummonSource = 'edge',
+  source: SummonSource = 'island',
   /** px from resting place to fully off screen: panel width plus its margin. */
   distance?: number,
 ): Variants {

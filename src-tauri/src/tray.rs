@@ -12,10 +12,11 @@ use crate::window;
 /// window, so the tray is what proves it is running and how it is quit.
 pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open panel", true, None::<&str>)?;
+    let island = MenuItem::with_id(app, "island", "Show island", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
     let separator = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit AI Control Center", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &settings, &separator, &quit])?;
+    let menu = Menu::with_items(app, &[&open, &island, &settings, &separator, &quit])?;
 
     // macOS draws menu-bar icons as templates: a black-and-alpha image it
     // recolours for light and dark menu bars. A full-colour icon flagged as a
@@ -42,6 +43,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
                 "open" => {
                     let _ = window::show(app, &edge, width, window::Summon::Tray);
                 }
+                "island" => crate::island::reopen(app),
                 "settings" => {
                     let _ = window::show(app, &edge, width, window::Summon::Tray);
                     let _ = tauri::Emitter::emit(app, "panel://settings", ());

@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { useApp } from '@/store/app';
-import { useSettings } from '@/store/settings';
+import { useSettings, type IslandMode } from '@/store/settings';
 import { useUpdates } from '@/store/updates';
 import type { SummonSource } from '@/lib/motion';
 import { invokeSafe, isTauri } from '@/lib/tauri';
@@ -60,16 +60,6 @@ export function usePanelLifecycle(): void {
         undefined,
       );
       void invokeSafe<void>('set_shortcut', { accelerator: s.shortcut }, undefined);
-      void invokeSafe<void>(
-        'set_edge_config',
-        { sensitivity: s.edgeSensitivity, dwellMs: s.edgeDwellMs },
-        undefined,
-      );
-      void invokeSafe<void>(
-        'set_edge_watch',
-        { enabled: s.edgeActivationEnabled },
-        undefined,
-      );
       void invokeSafe<void>('set_island_mode', { mode: s.islandMode }, undefined);
     });
     return unsubscribe;
@@ -82,7 +72,7 @@ export function usePanelLifecycle(): void {
       listen<string>('panel://shown', (event) => {
         // The shell says how it was summoned; a keyboard toggle skips the
         // entrance so the answer is on screen the instant the key is pressed.
-        setSummon(isSummonSource(event.payload) ? event.payload : 'edge');
+        setSummon(isSummonSource(event.payload) ? event.payload : 'island');
         useApp.getState().setPanelVisible(true);
         if (useSettings.getState().settings.onboarded) setRoute('dashboard');
         else setRoute('welcome');
@@ -90,6 +80,11 @@ export function usePanelLifecycle(): void {
       }),
       listen('panel://hidden', () => {
         useApp.getState().setPanelVisible(false);
+      }),
+      // The island was closed from its own button, or brought back from the
+      // tray: keep the saved setting in step.
+      listen<IslandMode>('island://mode', (event) => {
+        useSettings.getState().set('islandMode', event.payload);
       }),
       // Clicking an agent in the island opens the panel on that agent.
       listen<string>('island://open-agent', (event) => {
@@ -129,5 +124,5 @@ export function usePanelLifecycle(): void {
 }
 
 function isSummonSource(value: unknown): value is SummonSource {
-  return value === 'edge' || value === 'shortcut' || value === 'tray';
+  return value === 'island' || value === 'shortcut' || value === 'tray';
 }

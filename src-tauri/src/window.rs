@@ -68,11 +68,11 @@ pub fn apply_layout(app: &AppHandle, edge: &str, width: f64) -> tauri::Result<()
 }
 
 /// How the panel was summoned. The webview uses this to decide how the panel
-/// should arrive: a slow edge gesture earns a slide, a global shortcut pressed
-/// dozens of times a day does not.
+/// should arrive: a click on the island earns a slide, a global shortcut
+/// pressed dozens of times a day does not.
 #[derive(Clone, Copy)]
 pub enum Summon {
-    Edge,
+    Island,
     Shortcut,
     Tray,
 }
@@ -80,7 +80,7 @@ pub enum Summon {
 impl Summon {
     fn as_str(self) -> &'static str {
         match self {
-            Summon::Edge => "edge",
+            Summon::Island => "island",
             Summon::Shortcut => "shortcut",
             Summon::Tray => "tray",
         }

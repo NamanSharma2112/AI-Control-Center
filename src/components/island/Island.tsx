@@ -18,10 +18,12 @@ const GHOST_COLOR = '#8cb2ff';
 /** The ghost is drawn once at this size and scaled, so it never re-renders. */
 const GHOST_PX = 44;
 
-/** Opening and closing: 150 ms, ease-in-out, for the shape and everything in it. */
+/** Ease-in-out for the shape and everything in it: 250 ms to open, 150 ms to close. */
 const EASE_IN_OUT = [0.42, 0, 0.58, 1] as const;
-const MORPH = { duration: 0.15, ease: EASE_IN_OUT } as const;
-const FADE = { duration: 0.15, ease: EASE_IN_OUT } as const;
+const OPEN = { duration: 0.25, ease: EASE_IN_OUT } as const;
+const CLOSE = { duration: 0.15, ease: EASE_IN_OUT } as const;
+/** The transition towards the state the island is heading for. */
+const morph = (expanded: boolean) => (expanded ? OPEN : CLOSE);
 
 /**
  * The ghost's expressions, built from what bot-avatars offers: its states,
@@ -107,7 +109,7 @@ export function Island({
       <div className="pointer-events-none flex h-full w-full items-start justify-center pt-2.5">
         <motion.div
           layout
-          transition={MORPH}
+          transition={morph(expanded)}
           initial={false}
           animate={{ opacity: present ? 1 : 0, scale: present ? 1 : 0.92 }}
           onPointerEnter={() => onHover?.(true)}
@@ -134,7 +136,7 @@ export function Island({
               <motion.div
                 key="body"
                 initial={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: FADE }}
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: OPEN }}
                 exit={{ opacity: 0, y: -6, filter: 'blur(3px)', transition: { duration: 0.1, ease: EASE_IN_OUT } }}
                 className="px-3 pb-3"
               >
@@ -162,7 +164,7 @@ function Ghost({ summary, expanded }: { summary: IslandSummary; expanded: boolea
   return (
     <motion.div
       layout
-      transition={MORPH}
+      transition={morph(expanded)}
       className="relative shrink-0"
       style={{ width: size, height: size }}
       aria-hidden="true"
@@ -170,7 +172,7 @@ function Ghost({ summary, expanded }: { summary: IslandSummary; expanded: boolea
       <motion.div
         className="absolute top-0 left-0 origin-top-left"
         animate={{ scale: size / GHOST_PX }}
-        transition={MORPH}
+        transition={morph(expanded)}
         style={{ width: GHOST_PX, height: GHOST_PX }}
       >
         <BotAvatar
@@ -226,7 +228,7 @@ function Header({
     // keyboard's way in.
     <motion.div
       layout="position"
-      transition={MORPH}
+      transition={morph(expanded)}
       onClick={onOpenPanel}
       title="Open full panel"
       className={cn(
@@ -243,7 +245,7 @@ function Header({
             initial={{ opacity: 0, y: 6, filter: 'blur(3px)' }}
             animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
             exit={{ opacity: 0, y: -6, filter: 'blur(3px)' }}
-            transition={FADE}
+            transition={morph(expanded)}
             className="min-w-0"
           >
             {expanded ? (

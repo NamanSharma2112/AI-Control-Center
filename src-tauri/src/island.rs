@@ -23,7 +23,7 @@ pub const ISLAND: &str = "island";
 
 /// Logical sizes of the window, including room for the pill's shadow.
 const COLLAPSED: (f64, f64) = (380.0, 64.0);
-const EXPANDED: (f64, f64) = (480.0, 420.0);
+const EXPANDED: (f64, f64) = (480.0, 480.0);
 /// Gap between the top of the usable screen and the island.
 const TOP_GAP: f64 = 6.0;
 /// How long the card stays after the cursor leaves, so a pass over its

@@ -1,5 +1,5 @@
-import { useMemo, type ReactNode } from 'react';
-import { AnimatePresence, MotionConfig, motion } from 'motion/react';
+import { useEffect, useLayoutEffect, useMemo, useState, type ReactNode } from 'react';
+import { MotionConfig, motion } from 'motion/react';
 import { BotAvatar, type BotAvatarProps } from 'bot-avatars';
 import { Check, Maximize2, SquareTerminal, TriangleAlert, X } from 'lucide-react';
 import type { Session } from '@/types/domain';
@@ -25,6 +25,21 @@ const OPEN = { duration: 0.25, ease: EASE_IN_OUT } as const;
 const CLOSE = { duration: 0.15, ease: EASE_IN_OUT } as const;
 /** The transition towards the state the island is heading for. */
 const morph = (expanded: boolean) => (expanded ? OPEN : CLOSE);
+const INSTANT = { duration: 0 } as const;
+/** The two layers never show at once: the outgoing one fades first, and the
+ * incoming one fades in over the rest of the shape's move. */
+const LAYER_OUT = { duration: 0.08, ease: EASE_IN_OUT } as const;
+const LAYER_IN_OPENING = { duration: 0.15, delay: 0.1, ease: EASE_IN_OUT } as const;
+const LAYER_IN_CLOSING = { duration: 0.08, delay: 0.07, ease: EASE_IN_OUT } as const;
+/** The ghost lands a little before the card's text is readable beside it. */
+const GHOST_OPENING = { duration: 0.2, ease: EASE_IN_OUT } as const;
+
+/** Sizes and the ghost's spots in each, in px. */
+const CARD_W = 440;
+const PILL_H = 44;
+const PILL_MAX_W = 360;
+const GHOST_PILL = { size: 32, left: 8, top: 6 };
+const GHOST_CARD = { size: 44, left: 12, top: 12 };
 
 /**
  * The ghost's expressions. Each one is a way of moving, never a held pose:
@@ -57,9 +72,11 @@ const MOODS: Record<Mood, Partial<BotAvatarProps>> = {
  * Clicking it opens the full panel; clicking an agent opens the panel on that
  * agent.
  *
- * The pill is the card's header: hover does not swap one thing for another,
- * it grows one shape and reveals what was beneath. The ghost is a single
- * instance throughout, so it never restarts mid-blink.
+ * Hover grows one shape: its real width and height animate (never a scale,
+ * which would stretch the text inside), the pill's content fades out, and
+ * the card's content, already laid out at full size, fades in as the shape
+ * reveals it. The ghost is a single instance throughout, gliding from its
+ * place in the pill to its place in the card, so it never restarts.
  */
 export function Island({
   expanded,
@@ -104,42 +121,113 @@ export function Island({
     needsYou: sessions.filter((s) => s.status === 'waiting' && s.waitingReason !== 'idle').length,
   };
 
+  // The card's real size: it animates its width and height, never a scale,
+  // so nothing inside it is ever stretched; it just reveals or clips what
+  // it holds. The pill's width and the card's height are measured.
+  const [pillRef, pillSize] = useElementSize<HTMLDivElement>();
+  const [cardRef, cardSize] = useElementSize<HTMLDivElement>();
+  const pillWidth = Math.min(PILL_MAX_W, pillSize.width || PILL_MAX_W);
+  const width = expanded ? CARD_W : pillWidth;
+  const height = expanded ? cardSize.height || PILL_H : PILL_H;
+
+  // The first measurement is applied without animating, so the island does
+  // not grow into place when it first appears.
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    if (settled || !pillSize.width) return;
+    const id = requestAnimationFrame(() => setSettled(true));
+    return () => cancelAnimationFrame(id);
+  }, [settled, pillSize.width]);
+  const shape = settled ? morph(expanded) : INSTANT;
+
+  const status =
+    counts.working + counts.needsYou === 0
+      ? 'Nothing running'
+      : [counts.working && `${counts.working} working`, counts.needsYou && `${counts.needsYou} need you`]
+          .filter(Boolean)
+          .join(' · ');
+
   return (
     <MotionConfig reducedMotion="user">
       <div className="pointer-events-none flex h-full w-full items-start justify-center pt-2.5">
+        {/* Fading in and out (hover-only mode) is this wrapper's alone. */}
         <motion.div
-          layout
-          transition={morph(expanded)}
           initial={false}
           animate={{ opacity: present ? 1 : 0, scale: present ? 1 : 0.92 }}
-          onPointerEnter={() => onHover?.(true)}
-          onPointerLeave={() => onHover?.(false)}
-          style={{ borderRadius: expanded ? 26 : 22, width: expanded ? 440 : 'auto' }}
-          className={cn(
-            'pointer-events-auto relative max-w-[360px] overflow-hidden bg-[#0a0a0b] text-white',
-            'shadow-[0_10px_30px_-8px_rgb(0_0_0/0.6),0_0_0_1px_rgb(255_255_255/0.08)]',
-            expanded && 'max-w-[440px]',
-          )}
+          transition={CLOSE}
+          className="pointer-events-auto origin-top"
         >
-          <Header
-            summary={summary}
-            expanded={expanded}
-            now={now}
-            counts={counts}
-            series={series}
-            onOpenPanel={() => onOpenPanel()}
-            onClose={onClose}
-          />
+          <motion.div
+            initial={false}
+            animate={{ width, height, borderRadius: expanded ? 26 : 22 }}
+            transition={shape}
+            onPointerEnter={() => onHover?.(true)}
+            onPointerLeave={() => onHover?.(false)}
+            style={{
+              boxShadow: '0 10px 30px -8px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(255 255 255 / 0.08)',
+            }}
+            className="relative overflow-hidden bg-[#0a0a0b] text-white"
+          >
+            {/* The pill's content. Out first when opening, in last when closing. */}
+            <motion.div
+              ref={pillRef}
+              initial={false}
+              animate={{ opacity: expanded ? 0 : 1 }}
+              transition={expanded ? LAYER_OUT : LAYER_IN_CLOSING}
+              onClick={() => onOpenPanel()}
+              title="Open full panel"
+              aria-hidden={expanded}
+              inert={expanded}
+              className={cn(
+                'absolute top-0 left-1/2 flex h-11 w-max max-w-[360px] -translate-x-1/2 cursor-pointer items-center gap-2.5 py-1.5 pr-3.5 pl-2',
+                expanded && 'pointer-events-none',
+              )}
+            >
+              <span className="size-8 shrink-0" aria-hidden="true" />
+              <p className="t-label min-w-0 max-w-[200px] truncate whitespace-nowrap">
+                <span className={TONE_TEXT[summary.tone]}>{summary.title}</span>
+                {summary.detail && <span className="text-white/45"> · {summary.detail}</span>}
+              </p>
+              <Sparkline values={series} tone={summary.tone} />
+              <Trailing summary={summary} now={now} />
+            </motion.div>
 
-          <AnimatePresence initial={false} mode="popLayout">
-            {expanded && (
-              <motion.div
-                key="body"
-                initial={{ opacity: 0, y: -8, filter: 'blur(4px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transition: OPEN }}
-                exit={{ opacity: 0, y: -6, filter: 'blur(3px)', transition: { duration: 0.1, ease: EASE_IN_OUT } }}
-                className="px-3 pb-3"
+            {/* The card's content, at its full width throughout: the shape
+                around it grows to reveal it rather than squeezing it. */}
+            <motion.div
+              ref={cardRef}
+              initial={false}
+              animate={{ opacity: expanded ? 1 : 0 }}
+              transition={expanded ? LAYER_IN_OPENING : LAYER_OUT}
+              aria-hidden={!expanded}
+              inert={!expanded}
+              className={cn(
+                'absolute top-0 left-1/2 w-[440px] -translate-x-1/2',
+                !expanded && 'pointer-events-none',
+              )}
+            >
+              <div
+                onClick={() => onOpenPanel()}
+                title="Open full panel"
+                className="flex cursor-pointer items-center gap-2.5 px-3 pt-3 pb-2.5"
               >
+                <span className="size-11 shrink-0" aria-hidden="true" />
+                <div className="min-w-0 flex-1">
+                  <p className="t-strong truncate text-white">AI Control Center</p>
+                  <p className={cn('t-caption mt-0.5 truncate', counts.needsYou ? 'text-[#f5b14a]' : 'text-white/55')}>
+                    {status}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <IconButton label="Open full panel" onClick={() => onOpenPanel()}>
+                    <Maximize2 size={14} strokeWidth={2} />
+                  </IconButton>
+                  <IconButton label="Close the island" onClick={onClose}>
+                    <X size={15} strokeWidth={2.2} />
+                  </IconButton>
+                </div>
+              </div>
+              <div className="px-3 pb-3">
                 <Agents agents={agents} now={now} onOpen={onOpenPanel} />
                 <Usage now={now} />
                 <button
@@ -150,44 +238,55 @@ export function Island({
                   <Maximize2 size={13} strokeWidth={2} />
                   Open full panel
                 </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              </div>
+            </motion.div>
+
+            {/* One ghost, gliding between its place in the pill and in the
+                card, so it never restarts mid-blink. Its offsets are from the
+                card's centre line, which stays put while the shape grows. */}
+            <motion.div
+              aria-hidden="true"
+              initial={false}
+              animate={{
+                x: expanded ? -CARD_W / 2 + GHOST_CARD.left : -pillWidth / 2 + GHOST_PILL.left,
+                y: expanded ? GHOST_CARD.top : GHOST_PILL.top,
+                scale: (expanded ? GHOST_CARD.size : GHOST_PILL.size) / GHOST_PX,
+              }}
+              transition={!settled ? INSTANT : expanded ? GHOST_OPENING : CLOSE}
+              style={{ width: GHOST_PX, height: GHOST_PX, originX: 0, originY: 0 }}
+              className="pointer-events-none absolute top-0 left-1/2"
+            >
+              <BotAvatar
+                type="ghost"
+                color={GHOST_COLOR}
+                size={GHOST_PX}
+                jumpHeight={14}
+                jumpStretch={0.6}
+                // A thicker body than the default, so its 3D sides show as it turns.
+                depth={0.9}
+                {...MOODS[summary.mood]}
+              />
+            </motion.div>
+          </motion.div>
         </motion.div>
       </div>
     </MotionConfig>
   );
 }
 
-function Ghost({ summary, expanded }: { summary: IslandSummary; expanded: boolean }) {
-  const size = expanded ? 44 : 32;
-  return (
-    <motion.div
-      layout
-      transition={morph(expanded)}
-      className="relative shrink-0"
-      style={{ width: size, height: size }}
-      aria-hidden="true"
-    >
-      <motion.div
-        className="absolute top-0 left-0 origin-top-left"
-        animate={{ scale: size / GHOST_PX }}
-        transition={morph(expanded)}
-        style={{ width: GHOST_PX, height: GHOST_PX }}
-      >
-        <BotAvatar
-          type="ghost"
-          color={GHOST_COLOR}
-          size={GHOST_PX}
-          jumpHeight={14}
-          jumpStretch={0.6}
-          // A thicker body than the default, so its 3D sides show as it turns.
-          depth={0.9}
-          {...MOODS[summary.mood]}
-        />
-      </motion.div>
-    </motion.div>
-  );
+/** The element's border-box size, kept current as it changes. */
+function useElementSize<T extends HTMLElement>() {
+  const [element, setElement] = useState<T | null>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    if (!element) return;
+    const read = () => setSize({ width: element.offsetWidth, height: element.offsetHeight });
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+  return [setElement, size] as const;
 }
 
 const TONE_TEXT: Record<IslandSummary['tone'], string> = {
@@ -196,91 +295,6 @@ const TONE_TEXT: Record<IslandSummary['tone'], string> = {
   working: 'text-white',
   quiet: 'text-white/70',
 };
-
-function Header({
-  summary,
-  expanded,
-  now,
-  counts,
-  series,
-  onOpenPanel,
-  onClose,
-}: {
-  summary: IslandSummary;
-  expanded: boolean;
-  now: number;
-  counts: { working: number; needsYou: number };
-  series: number[];
-  onOpenPanel: () => void;
-  onClose: () => void;
-}) {
-  const status =
-    counts.working + counts.needsYou === 0
-      ? 'Nothing running'
-      : [counts.working && `${counts.working} working`, counts.needsYou && `${counts.needsYou} need you`]
-          .filter(Boolean)
-          .join(' · ');
-
-  return (
-    // The whole pill is a way into the panel; the button below is the
-    // keyboard's way in.
-    <motion.div
-      layout="position"
-      transition={morph(expanded)}
-      onClick={onOpenPanel}
-      title="Open full panel"
-      className={cn(
-        'flex cursor-pointer items-center gap-2.5',
-        expanded ? 'px-3 pt-3 pb-2.5' : 'h-11 py-1.5 pr-3.5 pl-2',
-      )}
-    >
-      <Ghost summary={summary} expanded={expanded} />
-
-      <div className="relative min-w-0 flex-1">
-        <AnimatePresence mode="popLayout" initial={false}>
-          <motion.div
-            key={expanded ? 'card' : `pill:${summary.title}:${summary.detail ?? ''}`}
-            initial={{ opacity: 0, y: 6, filter: 'blur(3px)' }}
-            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-            exit={{ opacity: 0, y: -6, filter: 'blur(3px)' }}
-            transition={morph(expanded)}
-            className="min-w-0"
-          >
-            {expanded ? (
-              <>
-                <p className="t-strong truncate text-white">AI Control Center</p>
-                <p className={cn('t-caption mt-0.5 truncate', counts.needsYou ? 'text-[#f5b14a]' : 'text-white/55')}>
-                  {status}
-                </p>
-              </>
-            ) : (
-              <p className="t-label max-w-[200px] truncate whitespace-nowrap">
-                <span className={TONE_TEXT[summary.tone]}>{summary.title}</span>
-                {summary.detail && <span className="text-white/45"> · {summary.detail}</span>}
-              </p>
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {expanded ? (
-        <div className="flex shrink-0 items-center gap-0.5">
-          <IconButton label="Open full panel" onClick={onOpenPanel}>
-            <Maximize2 size={14} strokeWidth={2} />
-          </IconButton>
-          <IconButton label="Close the island" onClick={onClose}>
-            <X size={15} strokeWidth={2.2} />
-          </IconButton>
-        </div>
-      ) : (
-        <>
-          <Sparkline values={series} tone={summary.tone} />
-          <Trailing summary={summary} now={now} />
-        </>
-      )}
-    </motion.div>
-  );
-}
 
 function IconButton({
   label,

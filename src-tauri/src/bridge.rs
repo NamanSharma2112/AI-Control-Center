@@ -26,8 +26,8 @@ use tauri::{AppHandle, Emitter};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 use crate::providers::{
-    now_ms, HookStateDto, LocalActivityDto, LocalProviderStateDto, LocalSessionDto,
-    LocalStepDto, LocalUsageDto,
+    now_ms, HookStateDto, LocalActivityDto, LocalProviderStateDto, LocalSessionDto, LocalStepDto,
+    LocalUsageDto,
 };
 use crate::secrets;
 
@@ -63,9 +63,21 @@ struct SiteInfo {
 
 fn site_info(site: &str) -> SiteInfo {
     match site {
-        "chatgpt" => SiteInfo { name: "ChatGPT", window: "session", window_ms: 3 * 3_600_000 },
-        "claude-web" => SiteInfo { name: "Claude", window: "session", window_ms: 5 * 3_600_000 },
-        _ => SiteInfo { name: "Gemini", window: "daily", window_ms: 24 * 3_600_000 },
+        "chatgpt" => SiteInfo {
+            name: "ChatGPT",
+            window: "session",
+            window_ms: 3 * 3_600_000,
+        },
+        "claude-web" => SiteInfo {
+            name: "Claude",
+            window: "session",
+            window_ms: 5 * 3_600_000,
+        },
+        _ => SiteInfo {
+            name: "Gemini",
+            window: "daily",
+            window_ms: 24 * 3_600_000,
+        },
     }
 }
 
@@ -146,7 +158,11 @@ pub struct Reply {
 
 impl Reply {
     fn new(status: u16, body: serde_json::Value) -> Self {
-        Self { status, body, effect: Effect::None }
+        Self {
+            status,
+            body,
+            effect: Effect::None,
+        }
     }
     fn error(status: u16, message: &str) -> Self {
         Self::new(status, serde_json::json!({ "error": message }))
@@ -200,8 +216,13 @@ impl Bridge {
 
     fn authorized(&self, header: Option<&str>) -> bool {
         let token = self.token.lock().unwrap();
-        match (token.as_deref(), header.and_then(|h| h.strip_prefix("Bearer "))) {
-            (Some(expected), Some(given)) => constant_time_eq(expected.as_bytes(), given.as_bytes()),
+        match (
+            token.as_deref(),
+            header.and_then(|h| h.strip_prefix("Bearer ")),
+        ) {
+            (Some(expected), Some(given)) => {
+                constant_time_eq(expected.as_bytes(), given.as_bytes())
+            }
             _ => false,
         }
     }
@@ -221,16 +242,24 @@ impl Bridge {
                 if !self.authorized(auth) {
                     return Reply::error(401, "not paired");
                 }
-                Reply::new(200, serde_json::json!({
-                    "app": "AI Control Center",
-                    "version": env!("CARGO_PKG_VERSION"),
-                }))
+                Reply::new(
+                    200,
+                    serde_json::json!({
+                        "app": "AI Control Center",
+                        "version": env!("CARGO_PKG_VERSION"),
+                    }),
+                )
             }
             ("POST", "/v1/pair") => {
                 let browser = serde_json::from_slice::<PairIn>(body)
                     .ok()
                     .and_then(|p| p.browser)
-                    .map(|b| b.chars().filter(|c| !c.is_control()).take(40).collect::<String>())
+                    .map(|b| {
+                        b.chars()
+                            .filter(|c| !c.is_control())
+                            .take(40)
+                            .collect::<String>()
+                    })
                     .filter(|b| !b.trim().is_empty())
                     .unwrap_or_else(|| "A browser".to_string());
                 let mut pending = self.pending.lock().unwrap();
@@ -238,7 +267,12 @@ impl Bridge {
                 if pending.iter().filter(|p| p.approved.is_none()).count() >= MAX_PENDING {
                     return Reply::error(429, "too many requests waiting");
                 }
-                let request = PairRequest { id: random_hex(12), browser, created_at: now, approved: None };
+                let request = PairRequest {
+                    id: random_hex(12),
+                    browser,
+                    created_at: now,
+                    approved: None,
+                };
                 let id = request.id.clone();
                 pending.push(request);
                 Reply::new(202, serde_json::json!({ "id": id })).with(Effect::PairRequested)
@@ -261,7 +295,10 @@ impl Bridge {
                         pending.remove(index);
                         let token = self.token.lock().unwrap().clone();
                         match token {
-                            Some(token) => Reply::new(200, serde_json::json!({ "status": "approved", "token": token })),
+                            Some(token) => Reply::new(
+                                200,
+                                serde_json::json!({ "status": "approved", "token": token }),
+                            ),
                             None => Reply::new(200, serde_json::json!({ "status": "denied" })),
                         }
                     }
@@ -285,7 +322,11 @@ impl Bridge {
                     changed |= self.apply(event, now);
                 }
                 let reply = Reply::new(200, serde_json::json!({ "ok": true }));
-                if changed { reply.with(Effect::Changed) } else { reply }
+                if changed {
+                    reply.with(Effect::Changed)
+                } else {
+                    reply
+                }
             }
             _ => Reply::error(404, "not found"),
         }
@@ -332,8 +373,14 @@ impl Bridge {
                 while tab.replies.len() > MAX_REPLIES_PER_TAB {
                     tab.replies.pop_front();
                 }
-                push_activity(site, &event.site, event.tab, "task-completed",
-                    format!("{name} finished a reply ({})", short_duration(took)), now);
+                push_activity(
+                    site,
+                    &event.site,
+                    event.tab,
+                    "task-completed",
+                    format!("{name} finished a reply ({})", short_duration(took)),
+                    now,
+                );
                 true
             }
             "limit" => {
@@ -344,8 +391,14 @@ impl Bridge {
                 site.limited_at = Some(now);
                 site.limit_resets_at = reset;
                 if fresh {
-                    push_activity(site, &event.site, event.tab, "usage-threshold",
-                        format!("{name} says its usage limit is reached"), now);
+                    push_activity(
+                        site,
+                        &event.site,
+                        event.tab,
+                        "usage-threshold",
+                        format!("{name} says its usage limit is reached"),
+                        now,
+                    );
                 }
                 fresh
             }
@@ -362,11 +415,16 @@ impl Bridge {
                 if let Some(started) = tab.generating_since {
                     if now - tab.last_seen > GENERATING_STALE_MS {
                         tab.generating_since = None;
-                        tab.replies.push_back((started, (tab.last_seen - started).max(0)));
+                        tab.replies
+                            .push_back((started, (tab.last_seen - started).max(0)));
                     }
                 }
             }
-            while site.prompts.front().is_some_and(|t| now - *t > KEEP_PROMPTS_MS) {
+            while site
+                .prompts
+                .front()
+                .is_some_and(|t| now - *t > KEEP_PROMPTS_MS)
+            {
                 site.prompts.pop_front();
             }
             if site.limit_resets_at.is_some_and(|t| t <= now) {
@@ -464,11 +522,16 @@ impl Bridge {
                         name: site_info(site).name.to_string(),
                         last_seen: state.and_then(|s| s.last_seen),
                         open_tabs: state.map_or(0, |s| s.tabs.len()),
-                        writing: state.is_some_and(|s| s.tabs.values().any(|t| t.generating_since.is_some())),
+                        writing: state
+                            .is_some_and(|s| s.tabs.values().any(|t| t.generating_since.is_some())),
                     }
                 })
                 .collect(),
-            pending: pending.iter().filter(|p| p.approved.is_none()).cloned().collect(),
+            pending: pending
+                .iter()
+                .filter(|p| p.approved.is_none())
+                .cloned()
+                .collect(),
         }
     }
 
@@ -506,7 +569,13 @@ impl Bridge {
     }
 }
 
-fn tab_session(site: &str, info: &SiteInfo, tab_id: i64, tab: &Tab, limited: bool) -> LocalSessionDto {
+fn tab_session(
+    site: &str,
+    info: &SiteInfo,
+    tab_id: i64,
+    tab: &Tab,
+    limited: bool,
+) -> LocalSessionDto {
     let mut steps: Vec<LocalStepDto> = tab
         .replies
         .iter()
@@ -535,7 +604,11 @@ fn tab_session(site: &str, info: &SiteInfo, tab_id: i64, tab: &Tab, limited: boo
         project_path: String::new(),
         status: String::new(),
         started_at: tab.opened_at,
-        last_activity_at: if writing { tab.last_seen } else { last_end.unwrap_or(tab.opened_at) },
+        last_activity_at: if writing {
+            tab.last_seen
+        } else {
+            last_end.unwrap_or(tab.opened_at)
+        },
         current_activity: if writing {
             "Writing a reply".to_string()
         } else if limited {
@@ -559,7 +632,14 @@ fn tab_session(site: &str, info: &SiteInfo, tab_id: i64, tab: &Tab, limited: boo
     }
 }
 
-fn push_activity(site: &mut SiteState, site_id: &str, tab: i64, kind: &str, message: String, now: i64) {
+fn push_activity(
+    site: &mut SiteState,
+    site_id: &str,
+    tab: i64,
+    kind: &str,
+    message: String,
+    now: i64,
+) {
     site.activities.push_front(LocalActivityDto {
         id: format!("{site_id}-{tab}-{now}-{kind}"),
         session_id: Some(format!("{site_id}-tab-{tab}")),
@@ -573,7 +653,11 @@ fn push_activity(site: &mut SiteState, site_id: &str, tab: i64, kind: &str, mess
 
 fn short_duration(ms: i64) -> String {
     let s = ms / 1000;
-    if s < 60 { format!("{s}s") } else { format!("{}m {}s", s / 60, s % 60) }
+    if s < 60 {
+        format!("{s}s")
+    } else {
+        format!("{}m {}s", s / 60, s % 60)
+    }
 }
 
 fn random_hex(bytes: usize) -> String {
@@ -592,9 +676,13 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 pub fn allowed_origin(origin: Option<&str>) -> bool {
     match origin {
         None => true,
-        Some(o) => ["chrome-extension://", "moz-extension://", "safari-web-extension://"]
-            .iter()
-            .any(|p| o.starts_with(p)),
+        Some(o) => [
+            "chrome-extension://",
+            "moz-extension://",
+            "safari-web-extension://",
+        ]
+        .iter()
+        .any(|p| o.starts_with(p)),
     }
 }
 
@@ -650,9 +738,19 @@ pub fn serve(bridge: Arc<Bridge>, on_effect: impl Fn(Effect) + Send + 'static) {
                     None,
                 );
                 if let Some(o) = &cors {
-                    response.add_header(Header::from_bytes("Access-Control-Allow-Origin", o.as_bytes()).unwrap());
-                    response.add_header(Header::from_bytes("Access-Control-Allow-Headers", "authorization, content-type").unwrap());
-                    response.add_header(Header::from_bytes("Access-Control-Allow-Methods", "GET, POST").unwrap());
+                    response.add_header(
+                        Header::from_bytes("Access-Control-Allow-Origin", o.as_bytes()).unwrap(),
+                    );
+                    response.add_header(
+                        Header::from_bytes(
+                            "Access-Control-Allow-Headers",
+                            "authorization, content-type",
+                        )
+                        .unwrap(),
+                    );
+                    response.add_header(
+                        Header::from_bytes("Access-Control-Allow-Methods", "GET, POST").unwrap(),
+                    );
                 }
                 let _ = request.respond(response);
             };
@@ -666,7 +764,11 @@ pub fn serve(bridge: Arc<Bridge>, on_effect: impl Fn(Effect) + Send + 'static) {
                 continue;
             }
             let mut body = Vec::new();
-            if request.as_reader().take(MAX_BODY as u64 + 1).read_to_end(&mut body).is_err()
+            if request
+                .as_reader()
+                .take(MAX_BODY as u64 + 1)
+                .read_to_end(&mut body)
+                .is_err()
                 || body.len() > MAX_BODY
             {
                 respond(request, 413, &serde_json::json!({ "error": "too large" }));
@@ -754,7 +856,13 @@ mod tests {
     const T: i64 = 1_700_000_000_000;
 
     fn event(bridge: &Bridge, body: &str, at: i64) -> Reply {
-        bridge.route("POST", "/v1/events", Some("Bearer tok"), body.as_bytes(), at)
+        bridge.route(
+            "POST",
+            "/v1/events",
+            Some("Bearer tok"),
+            body.as_bytes(),
+            at,
+        )
     }
 
     #[test]
@@ -774,11 +882,29 @@ mod tests {
     fn events_need_the_token() {
         let bridge = Bridge::with_token(Some("tok"));
         let body = br#"{"site":"chatgpt","tab":1,"kind":"generating"}"#;
-        assert_eq!(bridge.route("POST", "/v1/events", None, body, T).status, 401);
-        assert_eq!(bridge.route("POST", "/v1/events", Some("Bearer nope"), body, T).status, 401);
-        assert_eq!(bridge.route("POST", "/v1/events", Some("Bearer tok"), body, T).status, 200);
+        assert_eq!(
+            bridge.route("POST", "/v1/events", None, body, T).status,
+            401
+        );
+        assert_eq!(
+            bridge
+                .route("POST", "/v1/events", Some("Bearer nope"), body, T)
+                .status,
+            401
+        );
+        assert_eq!(
+            bridge
+                .route("POST", "/v1/events", Some("Bearer tok"), body, T)
+                .status,
+            200
+        );
         let unpaired = Bridge::with_token(None);
-        assert_eq!(unpaired.route("GET", "/v1/hello", Some("Bearer tok"), b"", T).status, 401);
+        assert_eq!(
+            unpaired
+                .route("GET", "/v1/hello", Some("Bearer tok"), b"", T)
+                .status,
+            401
+        );
     }
 
     #[test]
@@ -790,7 +916,10 @@ mod tests {
         let id = reply.body["id"].as_str().unwrap().to_string();
         let path = format!("/v1/pair/{id}");
 
-        assert_eq!(bridge.route("GET", &path, None, b"", T).body["status"], "pending");
+        assert_eq!(
+            bridge.route("GET", &path, None, b"", T).body["status"],
+            "pending"
+        );
         assert_eq!(bridge.status_at(T).pending.len(), 1);
         assert_eq!(bridge.status_at(T).pending[0].browser, "Chrome");
 
@@ -799,20 +928,35 @@ mod tests {
         assert_eq!(approved.body["status"], "approved");
         assert_eq!(approved.body["token"], "tok");
         // Gone after the first read.
-        assert_eq!(bridge.route("GET", &path, None, b"", T + 2).body["status"], "expired");
+        assert_eq!(
+            bridge.route("GET", &path, None, b"", T + 2).body["status"],
+            "expired"
+        );
     }
 
     #[test]
     fn pairing_can_be_denied_and_expires() {
         let bridge = Bridge::with_token(Some("tok"));
-        let id = bridge.route("POST", "/v1/pair", None, b"{}", T).body["id"].as_str().unwrap().to_string();
+        let id = bridge.route("POST", "/v1/pair", None, b"{}", T).body["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         bridge.respond(&id, false).unwrap();
         let denied = bridge.route("GET", &format!("/v1/pair/{id}"), None, b"", T);
         assert_eq!(denied.body["status"], "denied");
         assert!(denied.body.get("token").is_none());
 
-        let id = bridge.route("POST", "/v1/pair", None, b"{}", T).body["id"].as_str().unwrap().to_string();
-        let late = bridge.route("GET", &format!("/v1/pair/{id}"), None, b"", T + PAIR_TTL_MS + 1);
+        let id = bridge.route("POST", "/v1/pair", None, b"{}", T).body["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let late = bridge.route(
+            "GET",
+            &format!("/v1/pair/{id}"),
+            None,
+            b"",
+            T + PAIR_TTL_MS + 1,
+        );
         assert_eq!(late.body["status"], "expired");
     }
 
@@ -828,17 +972,44 @@ mod tests {
     #[test]
     fn a_reply_is_counted_and_shown_as_a_session() {
         let bridge = Bridge::with_token(Some("tok"));
-        assert_eq!(event(&bridge, r#"{"site":"chatgpt","tab":7,"kind":"present"}"#, T).effect, Effect::None);
-        assert_eq!(event(&bridge, r#"{"site":"chatgpt","tab":7,"kind":"generating"}"#, T + 1_000).effect, Effect::Changed);
+        assert_eq!(
+            event(&bridge, r#"{"site":"chatgpt","tab":7,"kind":"present"}"#, T).effect,
+            Effect::None
+        );
+        assert_eq!(
+            event(
+                &bridge,
+                r#"{"site":"chatgpt","tab":7,"kind":"generating"}"#,
+                T + 1_000
+            )
+            .effect,
+            Effect::Changed
+        );
         // A heartbeat while writing changes nothing visible.
-        assert_eq!(event(&bridge, r#"{"site":"chatgpt","tab":7,"kind":"generating"}"#, T + 5_000).effect, Effect::None);
+        assert_eq!(
+            event(
+                &bridge,
+                r#"{"site":"chatgpt","tab":7,"kind":"generating"}"#,
+                T + 5_000
+            )
+            .effect,
+            Effect::None
+        );
 
         {
             let sites = bridge.sites.lock().unwrap();
             let tab = &sites["chatgpt"].tabs[&7];
             assert_eq!(tab.generating_since, Some(T + 1_000));
         }
-        assert_eq!(event(&bridge, r#"{"site":"chatgpt","tab":7,"kind":"idle"}"#, T + 13_000).effect, Effect::Changed);
+        assert_eq!(
+            event(
+                &bridge,
+                r#"{"site":"chatgpt","tab":7,"kind":"idle"}"#,
+                T + 13_000
+            )
+            .effect,
+            Effect::Changed
+        );
 
         let sites = bridge.sites.lock().unwrap();
         let site = &sites["chatgpt"];
@@ -864,18 +1035,28 @@ mod tests {
             assert_eq!(sites["claude-web"].limit_resets_at, Some(reset));
         }
         // A reset time in the past or absurdly far away is ignored.
-        let bad = format!(r#"{{"site":"gemini","tab":3,"kind":"limit","resetAt":{}}}"#, T - 1);
+        let bad = format!(
+            r#"{{"site":"gemini","tab":3,"kind":"limit","resetAt":{}}}"#,
+            T - 1
+        );
         event(&bridge, &bad, T);
         assert_eq!(bridge.sites.lock().unwrap()["gemini"].limit_resets_at, None);
         // Writing again lifts it.
-        event(&bridge, r#"{"site":"claude-web","tab":2,"kind":"generating"}"#, T + 2_000);
+        event(
+            &bridge,
+            r#"{"site":"claude-web","tab":2,"kind":"generating"}"#,
+            T + 2_000,
+        );
         assert_eq!(bridge.sites.lock().unwrap()["claude-web"].limited_at, None);
     }
 
     #[test]
     fn unknown_sites_and_bad_bodies_are_ignored() {
         let bridge = Bridge::with_token(Some("tok"));
-        assert_eq!(event(&bridge, r#"{"site":"evil","tab":1,"kind":"generating"}"#, T).effect, Effect::None);
+        assert_eq!(
+            event(&bridge, r#"{"site":"evil","tab":1,"kind":"generating"}"#, T).effect,
+            Effect::None
+        );
         assert!(bridge.sites.lock().unwrap().is_empty());
         assert_eq!(event(&bridge, "not json", T).status, 400);
         // A batch is accepted.
@@ -886,12 +1067,21 @@ mod tests {
     #[test]
     fn closed_and_silent_tabs_go_away() {
         let bridge = Bridge::with_token(Some("tok"));
-        event(&bridge, r#"{"site":"chatgpt","tab":1,"kind":"generating"}"#, T);
+        event(
+            &bridge,
+            r#"{"site":"chatgpt","tab":1,"kind":"generating"}"#,
+            T,
+        );
         event(&bridge, r#"{"site":"chatgpt","tab":2,"kind":"present"}"#, T);
-        assert_eq!(event(&bridge, r#"{"site":"chatgpt","tab":2,"kind":"closed"}"#, T).effect, Effect::Changed);
+        assert_eq!(
+            event(&bridge, r#"{"site":"chatgpt","tab":2,"kind":"closed"}"#, T).effect,
+            Effect::Changed
+        );
         // Tab 1 stops sending mid-reply: the reply is closed off, then the tab dropped.
         bridge.prune(T + GENERATING_STALE_MS + 1);
-        assert!(bridge.sites.lock().unwrap()["chatgpt"].tabs[&1].generating_since.is_none());
+        assert!(bridge.sites.lock().unwrap()["chatgpt"].tabs[&1]
+            .generating_since
+            .is_none());
         bridge.prune(T + TAB_GONE_MS + 1);
         assert!(bridge.sites.lock().unwrap()["chatgpt"].tabs.is_empty());
     }

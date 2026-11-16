@@ -13,9 +13,9 @@
 //! Never open more than this many session files in one read.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1379,7 +1379,9 @@ pub fn cli_root(provider: &str) -> Option<PathBuf> {
 
 fn expand_home(path: &str) -> PathBuf {
     match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
-        Some(rest) => dirs::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| PathBuf::from(path)),
+        Some(rest) => dirs::home_dir()
+            .map(|h| h.join(rest))
+            .unwrap_or_else(|| PathBuf::from(path)),
         None => PathBuf::from(path),
     }
 }
@@ -1420,7 +1422,9 @@ pub fn detect_sources() -> Vec<SourceInfo> {
                 id: id.to_string(),
                 folder: resolved.as_ref().map(|(p, _)| p.display().to_string()),
                 origin: resolved.as_ref().map(|(_, o)| o.to_string()),
-                found: resolved.as_ref().is_some_and(|(p, _)| p.join(sessions_dir).exists()),
+                found: resolved
+                    .as_ref()
+                    .is_some_and(|(p, _)| p.join(sessions_dir).exists()),
                 sessions,
             }
         })
@@ -1470,7 +1474,10 @@ mod tests {
             "claude-code".to_string(),
             root.display().to_string(),
         )]));
-        let found = detect_sources().into_iter().find(|s| s.id == "claude-code").unwrap();
+        let found = detect_sources()
+            .into_iter()
+            .find(|s| s.id == "claude-code")
+            .unwrap();
         assert!(found.found);
         assert_eq!(found.origin.as_deref(), Some("custom"));
         assert_eq!(found.sessions, 2);

@@ -72,7 +72,11 @@ pub fn start(app: AppHandle) {
 
         let mut watched = std::collections::HashSet::new();
         for root in roots {
-            if debouncer.watcher().watch(&root, RecursiveMode::Recursive).is_ok() {
+            if debouncer
+                .watcher()
+                .watch(&root, RecursiveMode::Recursive)
+                .is_ok()
+            {
                 watched.insert(root);
             }
         }
@@ -89,7 +93,10 @@ pub fn start(app: AppHandle) {
             // is watched as soon as it exists.
             for root in providers::watch_roots() {
                 if !watched.contains(&root)
-                    && debouncer.watcher().watch(&root, RecursiveMode::Recursive).is_ok()
+                    && debouncer
+                        .watcher()
+                        .watch(&root, RecursiveMode::Recursive)
+                        .is_ok()
                 {
                     watched.insert(root);
                 }

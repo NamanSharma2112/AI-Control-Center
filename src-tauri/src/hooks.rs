@@ -190,7 +190,11 @@ fn is_ours(command: &str) -> bool {
 /* ---------- Claude Code: ~/.claude/settings.json ---------- */
 
 fn claude_settings() -> Result<PathBuf, String> {
-    Ok(home()?.join(".claude").join("settings.json"))
+    // The same folder the app reads sessions from, custom folder included.
+    match crate::providers::cli_root("claude-code") {
+        Some(root) => Ok(root.join("settings.json")),
+        None => Ok(home()?.join(".claude").join("settings.json")),
+    }
 }
 
 /// Adds our hook to `Notification` and `Stop`, replacing any older copy of
@@ -297,7 +301,10 @@ fn collect_commands(v: &Value, out: &mut Vec<String>) {
 /* ---------- Codex: ~/.codex/config.toml ---------- */
 
 fn codex_config() -> Result<PathBuf, String> {
-    Ok(home()?.join(".codex").join("config.toml"))
+    match crate::providers::cli_root("codex") {
+        Some(root) => Ok(root.join("config.toml")),
+        None => Ok(home()?.join(".codex").join("config.toml")),
+    }
 }
 
 fn codex_notify(exe: &str) -> toml_edit::Array {

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { RefreshCw, Settings as SettingsIcon } from 'lucide-react';
+import { Plug, RefreshCw, Settings as SettingsIcon } from 'lucide-react';
 import { useApp } from '@/store/app';
+import { isTauri } from '@/lib/tauri';
 import { forecastSentence, weeklySplit, type Run } from '@/lib/insights';
 import type { CategoryId } from '@/lib/categories';
 import type { Session } from '@/types/domain';
@@ -145,6 +146,9 @@ export function Console({
           <HeaderButton label="Refresh" onClick={() => void refresh()} disabled={refreshing}>
             <RefreshCw size={15} strokeWidth={1.9} className={cn(refreshing && 'animate-spin')} />
           </HeaderButton>
+          <HeaderButton label="Connections" onClick={() => setRoute('connect')}>
+            <Plug size={15} strokeWidth={1.9} />
+          </HeaderButton>
           <HeaderButton label="Settings" onClick={() => setRoute('settings')}>
             <SettingsIcon size={15} strokeWidth={1.9} />
           </HeaderButton>
@@ -152,6 +156,7 @@ export function Console({
       </header>
 
 
+      <SampleNotice />
       <Forecast runs={sentence} />
 
       <div className="mt-5">
@@ -345,5 +350,36 @@ function HeaderButton({
     >
       {children}
     </button>
+  );
+}
+
+/** Sample data is never shown without saying so. */
+function SampleNotice() {
+  const mode = useApp((s) => s.mode);
+  const setMode = useApp((s) => s.setMode);
+  const refresh = useApp((s) => s.refresh);
+  if (mode !== 'mock') return null;
+  const desktop = isTauri();
+  return (
+    <div className="t-caption mt-2 flex items-center gap-2 rounded-md bg-warn/10 px-3 py-2 text-text-2">
+      <span className="size-1.5 shrink-0 rounded-full bg-warn" aria-hidden="true" />
+      <span className="flex-1">
+        {desktop
+          ? 'Showing sample data, not your own.'
+          : 'Sample data. The desktop app shows your own agents and chats, live.'}
+      </span>
+      {desktop && (
+        <button
+          type="button"
+          onClick={() => {
+            setMode('live');
+            void refresh();
+          }}
+          className="t-label text-text-1 underline-offset-2 hover:underline"
+        >
+          Show my data
+        </button>
+      )}
+    </div>
   );
 }

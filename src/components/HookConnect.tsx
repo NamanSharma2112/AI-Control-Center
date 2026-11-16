@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Zap } from 'lucide-react';
 import { toast } from 'sonner';
-import type { ProviderId } from '@/types/domain';
+import type { CliProviderId } from '@/types/domain';
 import { CATEGORIES } from '@/lib/categories';
 import { invokeSafe, invokeStrict, isTauri } from '@/lib/tauri';
 import { cn } from '@/lib/cn';
@@ -13,12 +13,12 @@ interface HookStatus {
   problem: string | null;
 }
 
-const WHAT: Record<ProviderId, string> = {
+const WHAT: Record<CliProviderId, string> = {
   'claude-code': 'Tells you the moment it needs permission or finishes',
   codex: 'Tells you the moment it finishes a turn',
 };
 
-const WHERE: Record<ProviderId, string> = {
+const WHERE: Record<CliProviderId, string> = {
   'claude-code': '~/.claude/settings.json',
   codex: '~/.codex/config.toml',
 };
@@ -28,7 +28,7 @@ const WHERE: Record<ProviderId, string> = {
  * agent's config file, so it happens only on this explicit click, says which
  * file, and can be undone the same way.
  */
-export function HookConnect({ id }: { id: ProviderId }) {
+export function HookConnect({ id }: { id: CliProviderId }) {
   const [status, setStatus] = useState<HookStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const cat = CATEGORIES[id];

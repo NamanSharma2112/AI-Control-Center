@@ -24,7 +24,7 @@ import { isTauri } from '@/lib/tauri';
 import { deliver } from '@/lib/notify';
 import type { SummonSource } from '@/lib/motion';
 
-export type ViewRoute = 'dashboard' | 'settings' | 'welcome';
+export type ViewRoute = 'dashboard' | 'settings' | 'welcome' | 'connect';
 
 interface AppState {
   mode: AdapterMode;

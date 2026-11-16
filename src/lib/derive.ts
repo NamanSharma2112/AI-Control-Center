@@ -149,9 +149,13 @@ export function deriveSystemLine(snapshots: ProviderSnapshot[]): {
   tone: 'ok' | 'warn' | 'error' | 'idle';
   label: string;
 } {
-  const connected = snapshots.filter((s) => s.provider.connected);
+  // A source you have not set up (a browser site without the extension, a
+  // CLI you do not use) is not a fault: only sources that are live count.
+  const connected = snapshots.filter(
+    (s) => s.provider.connected && s.provider.status !== 'offline',
+  );
   if (connected.length === 0) {
-    return { tone: 'idle', label: 'No providers connected' };
+    return { tone: 'idle', label: 'Nothing connected yet' };
   }
 
   const errored = connected.filter((s) => s.provider.status === 'error');
@@ -162,17 +166,6 @@ export function deriveSystemLine(snapshots: ProviderSnapshot[]): {
         errored.length === 1
           ? `${errored[0].provider.name} unavailable`
           : `${errored.length} providers unavailable`,
-    };
-  }
-
-  const offline = connected.filter((s) => s.provider.status === 'offline');
-  if (offline.length > 0) {
-    return {
-      tone: 'warn',
-      label:
-        offline.length === 1
-          ? `${offline[0].provider.name} not detected`
-          : `${offline.length} providers not detected`,
     };
   }
 

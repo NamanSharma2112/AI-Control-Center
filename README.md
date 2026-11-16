@@ -7,6 +7,9 @@ desktop, in about two seconds:
 2. **What are my AI agents doing right now?**
 3. **What have my agents been doing recently?**
 
+It covers coding agents on your computer (**Claude Code**, **Codex**) and chats
+in your browser (**ChatGPT**, **Claude**, **Gemini**), live.
+
 A small island at the top centre of your screen, with a ghost that shows how
 your agents are doing (thinking, working, waiting on you, stuck, done), says the
 one thing that matters right now. Hover it for every agent and how much usage is
@@ -14,7 +17,8 @@ left; click it for the full panel with usage, every running agent session, and
 a feed of what just happened. It lives in the tray / menu bar and has no main
 window.
 
-Windows 11 and macOS. Local-first: no backend, no account, no telemetry.
+Windows 11 and macOS. Local-first: no backend, no account, no API keys, no
+telemetry.
 
 ## Download
 
@@ -34,7 +38,8 @@ install: the installer includes everything the app needs.
    - **Windows:** run the `.exe`. It installs for your user only, so it never
      asks for administrator rights, and it includes the web-view component the
      app draws with, so nothing else needs installing first.
-2. Open **AI Control Center**. The panel appears with a short welcome.
+2. Open **AI Control Center**. The panel appears with a short welcome, which
+   shows what it found and how to connect your browser (see *Connect your AI*).
 3. From then on it lives at the top of your screen and in the menu bar (Mac) or
    system tray (Windows). Hover the island for details, click it for the full
    panel, or press **⌘⇧Space** / **Ctrl+Shift+Space**. The island's **×** hides
@@ -118,18 +123,52 @@ cd src-tauri && cargo test && cargo clippy
 
 ---
 
+## Connect your AI
+
+Open the panel and press the plug button (or **Settings → Connections**).
+
+**Coding agents on this computer.** Claude Code and Codex connect by
+themselves: run one once and it appears, live. The Connections screen shows
+where the app is looking and how many sessions it found. If a CLI keeps its
+files somewhere else (inside WSL on Windows, for example
+`\\wsl.localhost\Ubuntu\home\you\.claude`), choose **Use a folder** and paste
+its path. `CLAUDE_CONFIG_DIR` and `CODEX_HOME` are honoured too.
+
+**Chats in your browser.** ChatGPT, Claude.ai and Gemini need the companion
+extension (Chrome, Edge, Brave and other Chromium browsers):
+
+1. In Connections, press **Get the extension**. The app puts it in
+   *Documents › AI Control Center › browser-extension* and opens that folder.
+   (It is also attached to every release as `AI-Control-Center-Browser-Extension.zip`.)
+2. Open `chrome://extensions`, switch on **Developer mode**, click **Load
+   unpacked** and choose that folder.
+3. Click the extension's icon, press **Connect to the app**, and click
+   **Allow** in AI Control Center.
+
+From then on, every open ChatGPT, Claude or Gemini tab shows up: whether it is
+writing a reply, how many messages you have sent in the current window, and
+when a site says you have hit its limit (with the reset time it gives).
+
 ## Where the data comes from
 
-Both supported CLIs keep their own session history on disk, in the user's home
-directory, as newline-delimited JSON. The adapters read those files. That is
-all they do.
-
-| Provider | Read from |
+| Source | Read from |
 |---|---|
-| Claude Code | `~/.claude/projects/**/*.jsonl` |
-| Codex | `~/.codex/sessions/**/*.jsonl` |
+| Claude Code | `~/.claude/projects/**/*.jsonl` (or your folder, or `$CLAUDE_CONFIG_DIR`) |
+| Codex | `~/.codex/sessions/**/*.jsonl` (or your folder, or `$CODEX_HOME`) |
+| ChatGPT, Claude, Gemini | the browser extension, over `127.0.0.1` only |
 
-**Not done, ever:** scraping a provider's website, reading browser cookies or
+The CLIs keep their own session history on disk as newline-delimited JSON; the
+adapters read those files, and that is all they do.
+
+The browser extension looks at exactly two things on those three sites:
+whether the site's own **Stop** button is on screen (a reply is being written),
+and whether a notice on the page says you have reached your **usage limit**. It
+never reads your messages, the model's replies or chat titles, and it sends
+those two signals only to the app on this computer. Message counts for the
+browser sites are counts of replies against a limit you can set (Settings →
+Plan limits), labelled *est.*; the sites publish no figures of their own.
+
+**Not done, ever:** reading conversation content, reading browser cookies or
 storage, bypassing authentication, or sending activity anywhere.
 
 ### Provenance
@@ -210,6 +249,12 @@ secrets.
 - `open_path` and `open_terminal` accept only a directory that exists, and pass
   it as an argument to a fixed program rather than interpolating it into a
   shell string.
+- The browser bridge listens on `127.0.0.1` only (ports 47821–47824). It
+  refuses requests from web pages (by `Origin`) and any `Host` other than the
+  loopback address (DNS rebinding). A browser must be approved by you in the
+  app before it gets a token; the token is kept in the OS keychain and checked
+  in constant time on every request. **Disconnect browsers** in Connections
+  destroys it.
 - A strict CSP is set in `tauri.conf.json`. The only network request is the
   optional update check (one static file from GitHub Releases, no user data),
   which can be turned off in Settings and exists only in builds with an update

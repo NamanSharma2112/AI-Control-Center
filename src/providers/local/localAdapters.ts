@@ -243,3 +243,8 @@ function asLimitWindow(raw: string): LimitWindow {
 
 export const localCodexProvider = createLocalAdapter('codex', 'Codex');
 export const localClaudeProvider = createLocalAdapter('claude-code', 'Claude Code');
+// The browser sites come through the same command: the app answers for them
+// from what the browser extension reported.
+export const localChatGptProvider = createLocalAdapter('chatgpt', 'ChatGPT');
+export const localClaudeWebProvider = createLocalAdapter('claude-web', 'Claude');
+export const localGeminiProvider = createLocalAdapter('gemini', 'Gemini');

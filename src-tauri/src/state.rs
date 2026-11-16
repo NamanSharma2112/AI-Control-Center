@@ -54,10 +54,13 @@ impl AppState {
     /// The caps the user set, read back out of the stored settings blob so the
     /// provider readers express usage against the user's own ceiling.
     pub fn cap_for(&self, provider: &str) -> i64 {
-        let fallback = if provider == "codex" {
-            1_500
-        } else {
-            2_000_000
+        // Matches the defaults in the webview's settings store.
+        let fallback = match provider {
+            "codex" => 1_500,
+            "chatgpt" => 80,
+            "claude-web" => 45,
+            "gemini" => 100,
+            _ => 2_000_000,
         };
         let Ok(Some(json)) = self.db.load_settings() else {
             return fallback;

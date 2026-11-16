@@ -61,6 +61,7 @@ export function usePanelLifecycle(): void {
       );
       void invokeSafe<void>('set_shortcut', { accelerator: s.shortcut }, undefined);
       void invokeSafe<void>('set_island_mode', { mode: s.islandMode }, undefined);
+      void invokeSafe<void>('set_data_folders', { folders: s.folders }, undefined);
     });
     return unsubscribe;
   }, []);
@@ -80,6 +81,11 @@ export function usePanelLifecycle(): void {
       }),
       listen('panel://hidden', () => {
         useApp.getState().setPanelVisible(false);
+      }),
+      // A browser asks to connect: open the panel where you can allow it.
+      listen('bridge://pair-request', () => {
+        void invokeSafe<void>('show_panel', undefined, undefined);
+        setRoute('connect');
       }),
       // The island was closed from its own button, or brought back from the
       // tray: keep the saved setting in step.

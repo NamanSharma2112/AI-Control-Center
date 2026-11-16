@@ -446,19 +446,21 @@ function AgentRow({
           )}
         </span>
       </button>
-      <button
-        type="button"
-        onClick={() => void jumpToAgent(session)}
-        aria-label={done ? `Open ${session.project}` : `Go to ${PROVIDER_NAMES[session.providerId]} in ${session.project}`}
-        title={done ? `Open ${session.project}` : `Go to its terminal`}
-        className={cn(
-          'mr-1.5 grid size-7 shrink-0 place-items-center rounded-lg text-white/45 transition-[color,background-color,opacity] duration-100',
-          'hover:bg-white/10 hover:text-white focus-visible:opacity-100',
-          needsYou ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
-        )}
-      >
-        <SquareTerminal size={14} strokeWidth={2} />
-      </button>
+      {session.projectPath && (
+        <button
+          type="button"
+          onClick={() => void jumpToAgent(session)}
+          aria-label={done ? `Open ${session.project}` : `Go to ${PROVIDER_NAMES[session.providerId]} in ${session.project}`}
+          title={done ? `Open ${session.project}` : `Go to its terminal`}
+          className={cn(
+            'mr-1.5 grid size-7 shrink-0 place-items-center rounded-lg text-white/45 transition-[color,background-color,opacity] duration-100',
+            'hover:bg-white/10 hover:text-white focus-visible:opacity-100',
+            needsYou ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+          )}
+        >
+          <SquareTerminal size={14} strokeWidth={2} />
+        </button>
+      )}
     </li>
   );
 }

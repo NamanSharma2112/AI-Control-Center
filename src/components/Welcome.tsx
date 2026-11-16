@@ -4,7 +4,8 @@ import { Bell, Check, CircleDashed, MousePointer2, ShieldCheck } from 'lucide-re
 import { isPermissionGranted, requestPermission } from '@tauri-apps/plugin-notification';
 import { useApp } from '@/store/app';
 import { useSettings } from '@/store/settings';
-import { PROVIDER_IDS } from '@/providers/registry';
+import { CLI_PROVIDERS, PROVIDER_IDS } from '@/providers/registry';
+import { BrowserConnect } from './Connections';
 import { CATEGORIES } from '@/lib/categories';
 import { Toggle } from '@/components/ui/Field';
 import { LimitEditor } from './LimitEditor';
@@ -43,6 +44,7 @@ export function Welcome() {
     const snap = snapshots.find((s) => s.provider.id === id);
     return snap && snap.provider.status !== 'offline';
   });
+  const foundCli = CLI_PROVIDERS.filter((id) => found.includes(id));
 
   const steps: Array<{ title: string; body: ReactNode }> = [
     {
@@ -50,8 +52,9 @@ export function Welcome() {
       body: (
         <div className="space-y-4">
           <p className="t-body max-w-[52ch] text-text-2">
-            One glance at every AI coding agent on this machine: how much usage is left, what
-            each agent is doing right now, and what it did recently.
+            One glance at the AI you use: coding agents on this machine and ChatGPT, Claude and
+            Gemini in your browser. How much usage is left, what each is doing right now, and
+            what it did recently.
           </p>
           <Row icon={<MousePointer2 size={16} strokeWidth={1.9} />} title="It lives at the top of your screen">
             The island at the top centre shows what your agents are doing. Hover it for the
@@ -62,23 +65,24 @@ export function Welcome() {
             . Click anywhere else or press Esc to put the panel away.
           </Row>
           <Row icon={<ShieldCheck size={16} strokeWidth={1.9} />} title="Stays on this machine">
-            It reads the session files Claude Code and Codex already keep on your computer. No
-            sign-in, no API keys, and your activity is never sent anywhere.
+            It reads the session files Claude Code and Codex keep on your computer, and what the
+            optional browser extension reports. No sign-in, no API keys, and your activity is
+            never sent anywhere.
           </Row>
         </div>
       ),
     },
     {
-      title: found.length > 0 ? 'Your agents' : 'No agents found yet',
+      title: 'Connect your AI',
       body: (
         <div className="space-y-3">
           <p className="t-body max-w-[52ch] text-text-2">
-            {found.length > 0
-              ? 'These were found on this computer. Turn off any you do not want shown.'
-              : 'Install Claude Code or Codex and run it once. It appears here by itself, with nothing to set up.'}
+            {foundCli.length > 0
+              ? 'Coding agents found on this computer. Turn off any you do not want shown.'
+              : 'Install Claude Code or Codex and run it once: it appears here by itself. Or connect your browser below.'}
           </p>
           <div className="space-y-2">
-            {PROVIDER_IDS.map((id) => {
+            {CLI_PROVIDERS.map((id) => {
               const cat = CATEGORIES[id];
               const isFound = found.includes(id);
               return (
@@ -112,16 +116,20 @@ export function Welcome() {
               );
             })}
           </div>
-          {found.length > 0 && isTauri() && (
+          {foundCli.length > 0 && isTauri() && (
             <div className="rounded-lg bg-card py-1.5">
               <p className="t-caption px-4 pt-2 text-text-2">
                 Optional: connect their own alerts, so you hear the moment one needs you or finishes.
               </p>
-              {found.map((id) => (
+              {foundCli.map((id) => (
                 <HookConnect key={id} id={id} />
               ))}
             </div>
           )}
+          <div className="rounded-lg bg-card py-1.5">
+            <p className="t-label px-4 pt-2 pb-1 text-text-2">ChatGPT, Claude and Gemini in your browser</p>
+            <BrowserConnect />
+          </div>
         </div>
       ),
     },
@@ -135,7 +143,7 @@ export function Welcome() {
               the limit you set. Not sure? Leave it, and set it from your usage the next time you
               hit your limit.
             </p>
-            {PROVIDER_IDS.map((id) => (
+            {(found.length > 0 ? found : CLI_PROVIDERS).map((id) => (
               <LimitEditor key={id} id={id} />
             ))}
           </div>

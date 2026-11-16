@@ -31,6 +31,9 @@
   --color-claude: var(--cat-claude);
   --color-codex: var(--cat-codex);
   --color-agents: var(--cat-agents);
+  --color-chatgpt: var(--cat-chatgpt);
+  --color-claudeweb: var(--cat-claudeweb);
+  --color-gemini: var(--cat-gemini);
 
   --color-ok: var(--ok);
   --color-warn: var(--warn);

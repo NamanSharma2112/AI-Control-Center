@@ -12,6 +12,9 @@ import { MetricCard } from './MetricCard';
 import { Console } from './Console';
 import { SettingsPane } from './SettingsPane';
 import { Welcome } from './Welcome';
+import { Connections } from './Connections';
+import { PROVIDER_IDS } from '@/providers/registry';
+import { Plug } from 'lucide-react';
 import { AnimatedNumber } from '@/components/ui/AnimatedNumber';
 import { ProvenanceTag } from '@/components/ui/ProvenanceTag';
 import { PROVIDER_WORD } from '@/components/ui/StatusDot';
@@ -36,6 +39,8 @@ export function Panel({ open = true }: { open?: boolean }) {
   const sessions = useApp((s) => s.sessions);
   const activities = useApp((s) => s.activities);
   const history = useApp((s) => s.history);
+  const hydrated = useApp((s) => s.hydrated);
+  const setRoute = useApp((s) => s.setRoute);
 
   const settings = useSettings((s) => s.settings);
   const prefersReduced = usePrefersReducedMotion();
@@ -59,10 +64,16 @@ export function Panel({ open = true }: { open?: boolean }) {
   );
   const routeVars = useMemo(() => routeVariants(intensity), [intensity]);
   const onRight = settings.edge === 'right';
-  const direction = route === 'settings' ? 1 : -1;
+  const direction = route === 'settings' || route === 'connect' ? 1 : -1;
 
-  const claudeSeries = useMemo(() => providerSeries(history, 'claude-code'), [history]);
-  const codexSeries = useMemo(() => providerSeries(history, 'codex'), [history]);
+  // The two provider cards show what you actually use: connected sources
+  // with data, the busiest first; Claude Code and Codex fill in otherwise.
+  const shown = useMemo(() => pickShownProviders(snapshots, sessions), [snapshots, sessions]);
+  const firstSeries = useMemo(() => providerSeries(history, shown[0]), [history, shown]);
+  const secondSeries = useMemo(() => providerSeries(history, shown[1]), [history, shown]);
+  const nothingConnected = !snapshots.some(
+    (s) => s.provider.connected && s.provider.status !== 'offline',
+  );
   const agentSeries = useMemo(() => sessionSeries(activities), [activities]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -70,7 +81,7 @@ export function Panel({ open = true }: { open?: boolean }) {
     scrollRef.current?.scrollTo({ top: 0 });
   }, [route]);
 
-  const providerCard = (id: ProviderId, form: 'bars' | 'area', series: typeof claudeSeries) => {
+  const providerCard = (id: ProviderId, form: 'bars' | 'area', series: typeof firstSeries) => {
     const snapshot = snapshots.find((s) => s.provider.id === id);
     return (
       <ProviderMetric
@@ -133,6 +144,10 @@ export function Panel({ open = true }: { open?: boolean }) {
                     <div className="flex flex-col @min-[720px]:h-full @min-[720px]:min-h-0">
                       <Welcome />
                     </div>
+                  ) : route === 'connect' ? (
+                    <div className="flex flex-col p-2 @min-[720px]:h-full @min-[720px]:min-h-0">
+                      <Connections />
+                    </div>
                   ) : route === 'settings' ? (
                     <div className="flex flex-col p-2 @min-[720px]:h-full @min-[720px]:min-h-0">
                       <SettingsPane />
@@ -140,8 +155,14 @@ export function Panel({ open = true }: { open?: boolean }) {
                   ) : (
                     <div className="grid gap-4 @min-[720px]:h-full @min-[720px]:min-h-0 @min-[720px]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                       <div className="flex flex-col gap-2.5 @min-[720px]:min-h-0 [&>section]:min-h-[164px]">
-                        {providerCard('claude-code', 'bars', claudeSeries)}
-                        {providerCard('codex', 'area', codexSeries)}
+                        {nothingConnected && hydrated ? (
+                          <ConnectCard onConnect={() => setRoute('connect')} />
+                        ) : (
+                          <>
+                            {providerCard(shown[0], 'bars', firstSeries)}
+                            {providerCard(shown[1], 'area', secondSeries)}
+                          </>
+                        )}
                         <MetricCard
                           category={CATEGORIES.agents}
                           figure={<AnimatedNumber value={seriesTotal(agentSeries)} animate={intensity === 'full'} />}
@@ -265,5 +286,55 @@ function ProviderMetric({
       dimmed={focus !== null && focus !== id}
       onHoverChange={(h) => onFocus(h ? id : null)}
     />
+  );
+}
+
+/**
+ * The two providers the left column shows. Connected sources with something
+ * to show come first, the busiest first; the coding agents fill in so the
+ * column keeps its shape.
+ */
+function pickShownProviders(
+  snapshots: ProviderSnapshot[],
+  sessions: { providerId: ProviderId; status: string }[],
+): [ProviderId, ProviderId] {
+  const live = (id: ProviderId) => {
+    const s = snapshots.find((x) => x.provider.id === id);
+    return !!s && s.provider.connected && s.provider.status !== 'offline';
+  };
+  const busy = (id: ProviderId) =>
+    sessions.filter((s) => s.providerId === id && (s.status === 'running' || s.status === 'waiting')).length;
+  const order = PROVIDER_IDS.map((id, index) => ({ id, index }))
+    .filter(({ id }) => live(id))
+    .sort((a, b) => busy(b.id) - busy(a.id) || a.index - b.index)
+    .map(({ id }) => id);
+  for (const fallback of ['claude-code', 'codex', 'chatgpt'] as ProviderId[]) {
+    if (order.length >= 2) break;
+    if (!order.includes(fallback)) order.push(fallback);
+  }
+  return [order[0], order[1]];
+}
+
+/** Shown in place of the provider cards when nothing is connected yet. */
+function ConnectCard({ onConnect }: { onConnect: () => void }) {
+  return (
+    <section className="flex flex-col justify-between rounded-lg bg-card p-4 @min-[720px]:min-h-[338px]">
+      <div>
+        <p className="t-label text-text-2">Live data</p>
+        <h2 className="t-title mt-2 text-text-1">Connect your AI</h2>
+        <p className="t-body mt-2 max-w-[38ch] text-text-2">
+          Nothing is connected yet. Add Claude Code or Codex on this computer, or ChatGPT, Claude and
+          Gemini in your browser, and their activity shows up here live.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onConnect}
+        className="t-label mt-4 inline-flex h-9 w-fit items-center gap-1.5 rounded-full bg-primary px-4 text-primary-fg hover:bg-primary-hover"
+      >
+        <Plug size={14} strokeWidth={2} />
+        Connect
+      </button>
+    </section>
   );
 }

@@ -9,6 +9,9 @@ import { cn } from '@/lib/cn';
 export const LIMIT_UNIT: Record<ProviderId, string> = {
   'claude-code': 'tokens per 5 hours',
   codex: 'requests per week',
+  chatgpt: 'messages per 3 hours',
+  'claude-web': 'messages per 5 hours',
+  gemini: 'messages per day',
 };
 
 /**

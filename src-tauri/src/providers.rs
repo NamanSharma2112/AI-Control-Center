@@ -15,7 +15,9 @@
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_SESSION_FILES: usize = 24;
@@ -284,7 +286,7 @@ impl CliLayout for ClaudeCode {
         out
     }
     fn root(&self) -> Option<PathBuf> {
-        dirs::home_dir().map(|h| h.join(".claude"))
+        cli_root("claude-code")
     }
     fn sessions_dir(&self, root: &Path) -> PathBuf {
         root.join("projects")
@@ -511,7 +513,7 @@ impl CliLayout for Codex {
             .collect()
     }
     fn root(&self) -> Option<PathBuf> {
-        dirs::home_dir().map(|h| h.join(".codex"))
+        cli_root("codex")
     }
     fn sessions_dir(&self, root: &Path) -> PathBuf {
         root.join("sessions")
@@ -1335,17 +1337,116 @@ pub fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+/// Folders the user pointed the app at, by provider id, from Settings.
+static FOLDERS: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Default::default);
+
+pub fn set_folder_overrides(folders: HashMap<String, String>) {
+    *FOLDERS.lock().unwrap() = folders;
+}
+
+/// Where a CLI keeps its state, and how that was decided.
+fn cli_root_with_origin(provider: &str) -> Option<(PathBuf, &'static str)> {
+    let (env_var, default_dir, sessions) = match provider {
+        "claude-code" => ("CLAUDE_CONFIG_DIR", ".claude", "projects"),
+        "codex" => ("CODEX_HOME", ".codex", "sessions"),
+        _ => return None,
+    };
+    let custom = FOLDERS
+        .lock()
+        .unwrap()
+        .get(provider)
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let (path, origin) = if let Some(custom) = custom {
+        (expand_home(&custom), "custom")
+    } else if let Some(env) = std::env::var_os(env_var).filter(|v| !v.is_empty()) {
+        (PathBuf::from(env), "env")
+    } else {
+        (dirs::home_dir()?.join(default_dir), "default")
+    };
+    // Pointing at the sessions folder itself means its parent.
+    let path = if path.file_name().is_some_and(|n| n == sessions) && !path.join(sessions).exists() {
+        path.parent().map(Path::to_path_buf).unwrap_or(path)
+    } else {
+        path
+    };
+    Some((path, origin))
+}
+
+pub fn cli_root(provider: &str) -> Option<PathBuf> {
+    cli_root_with_origin(provider).map(|(p, _)| p)
+}
+
+fn expand_home(path: &str) -> PathBuf {
+    match path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) {
+        Some(rest) => dirs::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| PathBuf::from(path)),
+        None => PathBuf::from(path),
+    }
+}
+
 /// Directories to watch for change, so refreshes are event-driven.
 pub fn watch_roots() -> Vec<PathBuf> {
-    let mut roots = Vec::new();
-    if let Some(home) = dirs::home_dir() {
-        for candidate in [home.join(".claude/projects"), home.join(".codex/sessions")] {
-            if candidate.exists() {
-                roots.push(candidate);
+    [("claude-code", "projects"), ("codex", "sessions")]
+        .iter()
+        .filter_map(|(id, sessions)| Some(cli_root(id)?.join(sessions)))
+        .filter(|p| p.exists())
+        .collect()
+}
+
+/// What the Connections screen shows for a CLI: where the app is looking,
+/// why there, and what it found.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceInfo {
+    pub id: String,
+    pub folder: Option<String>,
+    /// "custom" (set in the app), "env" (the CLI's own variable) or "default".
+    pub origin: Option<String>,
+    pub found: bool,
+    /// Session transcripts on disk, up to a bound.
+    pub sessions: usize,
+}
+
+pub fn detect_sources() -> Vec<SourceInfo> {
+    [("claude-code", "projects"), ("codex", "sessions")]
+        .iter()
+        .map(|(id, sessions_dir)| {
+            let resolved = cli_root_with_origin(id);
+            let sessions = resolved
+                .as_ref()
+                .map(|(root, _)| count_jsonl(&root.join(sessions_dir), 4, 5_000))
+                .unwrap_or(0);
+            SourceInfo {
+                id: id.to_string(),
+                folder: resolved.as_ref().map(|(p, _)| p.display().to_string()),
+                origin: resolved.as_ref().map(|(_, o)| o.to_string()),
+                found: resolved.as_ref().is_some_and(|(p, _)| p.join(sessions_dir).exists()),
+                sessions,
             }
+        })
+        .collect()
+}
+
+/// Counts `.jsonl` files under `dir`, `depth` levels down, stopping at `cap`.
+fn count_jsonl(dir: &Path, depth: usize, cap: usize) -> usize {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut count = 0;
+    for entry in entries.flatten() {
+        if count >= cap {
+            break;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            if depth > 0 {
+                count += count_jsonl(&path, depth - 1, cap - count);
+            }
+        } else if path.extension().is_some_and(|e| e == "jsonl") {
+            count += 1;
         }
     }
-    roots
+    count
 }
 
 #[cfg(test)]
@@ -1355,6 +1456,32 @@ mod tests {
 
     fn record(json: &str) -> Record {
         serde_json::from_str(json).expect("valid test record")
+    }
+
+    #[test]
+    fn a_custom_folder_wins_and_its_sessions_folder_means_the_same() {
+        let root = temp_dir("custom-claude-root");
+        let projects = root.join("projects").join("my-app");
+        fs::create_dir_all(&projects).unwrap();
+        fs::write(projects.join("one.jsonl"), "{}\n").unwrap();
+        fs::write(projects.join("two.jsonl"), "{}\n").unwrap();
+
+        set_folder_overrides(HashMap::from([(
+            "claude-code".to_string(),
+            root.display().to_string(),
+        )]));
+        let found = detect_sources().into_iter().find(|s| s.id == "claude-code").unwrap();
+        assert!(found.found);
+        assert_eq!(found.origin.as_deref(), Some("custom"));
+        assert_eq!(found.sessions, 2);
+
+        // Pointing at …/projects itself is understood as its parent.
+        set_folder_overrides(HashMap::from([(
+            "claude-code".to_string(),
+            root.join("projects").display().to_string(),
+        )]));
+        assert_eq!(cli_root("claude-code").unwrap(), root);
+        set_folder_overrides(HashMap::new());
     }
 
     fn temp_dir(name: &str) -> PathBuf {

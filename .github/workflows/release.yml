@@ -181,6 +181,18 @@ jobs:
     if: needs.prepare.outputs.release_id != ''
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      # The browser extension, as a zip for people who install it by hand
+      # (the app also ships it and can set it up itself).
+      - name: Package the browser extension
+        run: |
+          set -euo pipefail
+          want="$(jq -r .version src-tauri/tauri.conf.json)"
+          have="$(jq -r .version extension/manifest.json)"
+          [ "$want" = "$have" ] || { echo "::error::extension/manifest.json is $have, the app is $want"; exit 1; }
+          (cd extension && zip -qr "$GITHUB_WORKSPACE/AI-Control-Center-Browser-Extension.zip" .)
+
       - name: Name the installers and publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -194,5 +206,6 @@ jobs:
           mv *.dmg AI-Control-Center-macOS.dmg
           mv *-setup.exe AI-Control-Center-Windows-setup.exe
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            AI-Control-Center-macOS.dmg AI-Control-Center-Windows-setup.exe
+            AI-Control-Center-macOS.dmg AI-Control-Center-Windows-setup.exe \
+            "$GITHUB_WORKSPACE/AI-Control-Center-Browser-Extension.zip"
           gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest

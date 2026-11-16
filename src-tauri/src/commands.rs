@@ -16,9 +16,14 @@ use crate::window;
 pub fn read_provider_state(
     provider: String,
     state: State<'_, Arc<AppState>>,
+    bridge: State<'_, Arc<crate::bridge::Bridge>>,
 ) -> LocalProviderStateDto {
     let cap = state.cap_for(&provider);
-    let result = providers::read_provider_state(&provider, cap);
+    let result = if crate::bridge::is_browser_provider(&provider) {
+        bridge.provider_state(&provider, cap)
+    } else {
+        providers::read_provider_state(&provider, cap)
+    };
 
     // Keep a usage trail so history survives a restart.
     if let Some(usage) = &result.usage {
@@ -39,6 +44,19 @@ pub fn read_provider_state(
     }
 
     result
+}
+
+/// Where the app looks for each CLI, and what it found there.
+#[tauri::command]
+pub fn detect_sources() -> Vec<providers::SourceInfo> {
+    providers::detect_sources()
+}
+
+/// The folders the user chose in Settings; empty means "the usual place".
+#[tauri::command]
+pub fn set_data_folders(app: AppHandle, folders: std::collections::HashMap<String, String>) {
+    providers::set_folder_overrides(folders);
+    let _ = tauri::Emitter::emit(&app, "provider://changed", ());
 }
 
 #[tauri::command]

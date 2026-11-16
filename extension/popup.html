@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-48.png" alt="" width="28" height="28" />
+      <div>
+        <h1>AI Control Center</h1>
+        <p id="headline">Checking…</p>
+      </div>
+    </header>
+
+    <section id="action" hidden>
+      <p id="explain"></p>
+      <button id="connect" type="button">Connect to the app</button>
+    </section>
+
+    <section>
+      <h2>Sites</h2>
+      <ul id="sites">
+        <li data-site="chatgpt"><span class="dot"></span>ChatGPT<span class="count"></span></li>
+        <li data-site="claude-web"><span class="dot"></span>Claude<span class="count"></span></li>
+        <li data-site="gemini"><span class="dot"></span>Gemini<span class="count"></span></li>
+      </ul>
+      <p class="hint">Already had one open before installing? Reload that tab once.</p>
+    </section>
+
+    <footer>
+      <p>Reads no messages. Only whether a reply is being written and whether you've hit a limit, sent only to the app on this computer.</p>
+      <button id="disconnect" type="button" class="quiet" hidden>Disconnect</button>
+    </footer>
+    <script src="popup.js"></script>
+  </body>
+</html>

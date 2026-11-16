@@ -1,3 +1,5 @@
+#[doc(hidden)]
+pub mod bridge;
 mod commands;
 mod db;
 mod focus;
@@ -77,6 +79,12 @@ pub fn run() {
             island::set_island_mode,
             island::island_pointer,
             island::close_island,
+            commands::detect_sources,
+            commands::set_data_folders,
+            bridge::bridge_status,
+            bridge::install_browser_extension,
+            bridge::bridge_respond,
+            bridge::bridge_forget,
             updater::check_update,
             updater::install_update,
         ])
@@ -96,6 +104,12 @@ pub fn run() {
 
             let island_state = Arc::new(island::IslandState::new());
             app.manage(island_state.clone());
+
+            // ChatGPT, Claude and Gemini in the browser report in through
+            // the companion extension, over 127.0.0.1 only.
+            let browser_bridge = Arc::new(bridge::Bridge::new());
+            app.manage(browser_bridge.clone());
+            bridge::start(handle.clone(), browser_bridge);
             island::start_hover_watch(handle.clone(), island_state);
 
             tray::build(&handle)?;

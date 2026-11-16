@@ -62,3 +62,20 @@ function createMockAdapter(name: string, profile: MockProfile): ProviderAdapter 
 
 export const mockCodexProvider = createMockAdapter('Codex', codexProfile);
 export const mockClaudeProvider = createMockAdapter('Claude Code', claudeCodeProfile);
+
+/** Browser sites in sample mode: not connected, which is all a browser
+ * preview could truthfully say about them. */
+function offlineAdapter(id: ProviderId, name: string): ProviderAdapter {
+  return {
+    id,
+    name,
+    getStatus: async () => 'offline',
+    getUsage: async () => null,
+    getLimits: async () => [],
+    getSessions: async () => [],
+    getRecentActivity: async () => [],
+  };
+}
+export const mockChatGptProvider = offlineAdapter('chatgpt', 'ChatGPT');
+export const mockClaudeWebProvider = offlineAdapter('claude-web', 'Claude');
+export const mockGeminiProvider = offlineAdapter('gemini', 'Gemini');

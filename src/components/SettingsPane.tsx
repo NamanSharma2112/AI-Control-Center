@@ -3,7 +3,7 @@ import { ArrowLeft, ShieldCheck, Trash2 } from 'lucide-react';
 import { useSettings, PANEL_WIDTH } from '@/store/settings';
 import type { EdgeSide, IslandMode, MotionIntensity, RetentionDays, ThemeMode } from '@/store/settings';
 import { useApp } from '@/store/app';
-import { PROVIDER_IDS } from '@/providers/registry';
+import { CLI_PROVIDERS, PROVIDER_IDS } from '@/providers/registry';
 import { CATEGORIES } from '@/lib/categories';
 import { Field, Segmented, Slider, Toggle } from '@/components/ui/Field';
 import { ShortcutRecorder } from './ShortcutRecorder';
@@ -158,6 +158,15 @@ export function SettingsPane() {
 
           <div className="space-y-3">
             <Group title="Providers">
+              <Field label="Connections" hint="Coding agents and chats in your browser">
+                <button
+                  type="button"
+                  onClick={() => setRoute('connect')}
+                  className="t-label flex h-8 items-center rounded-full bg-primary px-3.5 whitespace-nowrap text-primary-fg transition-opacity duration-100 hover:opacity-90"
+                >
+                  Manage
+                </button>
+              </Field>
               {PROVIDER_IDS.map((id) => {
                 const cat = CATEGORIES[id];
                 const snapshot = snapshots.find((s) => s.provider.id === id);
@@ -201,7 +210,7 @@ export function SettingsPane() {
                 Connect each agent's own notifications, so "Needs you" and "Finished" are exact
                 and instant rather than guessed from silence.
               </p>
-              {PROVIDER_IDS.map((id) => (
+              {CLI_PROVIDERS.map((id) => (
                 <HookConnect key={id} id={id} />
               ))}
             </Group>

@@ -30,6 +30,8 @@ export interface Settings {
   connected: Record<ProviderId, boolean>;
   /** Locally-set ceilings used to express usage as a percentage. */
   caps: Record<ProviderId, number>;
+  /** Where to find each CLI's state; empty means its usual folder. */
+  folders: Record<'claude-code' | 'codex', string>;
 
   // Notifications
   notifyUsageThreshold: number;
@@ -61,8 +63,11 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'system',
   islandMode: 'always',
 
-  connected: { codex: true, 'claude-code': true },
-  caps: { codex: 1500, 'claude-code': 2_000_000 },
+  connected: { codex: true, 'claude-code': true, chatgpt: true, 'claude-web': true, gemini: true },
+  // Browser sites publish no limits: these are rough message counts per
+  // window, which the user can correct in Settings.
+  caps: { codex: 1500, 'claude-code': 2_000_000, chatgpt: 80, 'claude-web': 45, gemini: 100 },
+  folders: { 'claude-code': '', codex: '' },
 
   notifyUsageThreshold: 25,
   notifyOnUsage: true,
@@ -102,6 +107,10 @@ function migrate(stored: Settings): Settings {
     edgeDwellMs?: number;
   };
   if (islandEnabled === false) settings.islandMode = 'off';
+  // Providers added in later versions start with their defaults, not missing.
+  settings.connected = { ...DEFAULT_SETTINGS.connected, ...settings.connected };
+  settings.caps = { ...DEFAULT_SETTINGS.caps, ...settings.caps };
+  settings.folders = { ...DEFAULT_SETTINGS.folders, ...settings.folders };
   const { panelWidth } = settings;
   if (panelWidth < PANEL_WIDTH.min || panelWidth > PANEL_WIDTH.max) {
     return { ...settings, panelWidth: PANEL_WIDTH.default };

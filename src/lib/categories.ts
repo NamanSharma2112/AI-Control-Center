@@ -1,4 +1,4 @@
-import { Asterisk, Bot, Braces, type LucideIcon } from 'lucide-react';
+import { Asterisk, Bot, Braces, MessageCircle, MessagesSquare, Sparkles, type LucideIcon } from 'lucide-react';
 import type { ProviderId } from '@/types/domain';
 
 /**
@@ -38,6 +38,30 @@ export const CATEGORIES: Record<CategoryId, Category> = {
     text: 'text-codex',
     bg: 'bg-codex',
     color: 'var(--cat-codex)',
+  },
+  chatgpt: {
+    id: 'chatgpt',
+    label: 'ChatGPT',
+    icon: MessageCircle,
+    text: 'text-chatgpt',
+    bg: 'bg-chatgpt',
+    color: 'var(--cat-chatgpt)',
+  },
+  'claude-web': {
+    id: 'claude-web',
+    label: 'Claude',
+    icon: MessagesSquare,
+    text: 'text-claudeweb',
+    bg: 'bg-claudeweb',
+    color: 'var(--cat-claudeweb)',
+  },
+  gemini: {
+    id: 'gemini',
+    label: 'Gemini',
+    icon: Sparkles,
+    text: 'text-gemini',
+    bg: 'bg-gemini',
+    color: 'var(--cat-gemini)',
   },
   agents: {
     id: 'agents',

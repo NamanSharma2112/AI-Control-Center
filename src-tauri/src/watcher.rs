@@ -38,10 +38,6 @@ pub fn start(app: AppHandle) {
         std::fs::create_dir_all(&dir).ok()?;
         Some(dir)
     });
-    if roots.is_empty() && hook_dir.is_none() {
-        return;
-    }
-
     std::thread::spawn(move || {
         let handle = Arc::new(app);
         let emitter = handle.clone();
@@ -74,8 +70,11 @@ pub fn start(app: AppHandle) {
             return;
         };
 
-        for root in &roots {
-            let _ = debouncer.watcher().watch(root, RecursiveMode::Recursive);
+        let mut watched = std::collections::HashSet::new();
+        for root in roots {
+            if debouncer.watcher().watch(&root, RecursiveMode::Recursive).is_ok() {
+                watched.insert(root);
+            }
         }
         if let Some(dir) = &hook_dir {
             let _ = debouncer.watcher().watch(dir, RecursiveMode::NonRecursive);
@@ -86,6 +85,15 @@ pub fn start(app: AppHandle) {
         // interval has passed.
         loop {
             std::thread::sleep(ISLAND_INTERVAL);
+            // A CLI installed after launch, or a folder chosen in Settings,
+            // is watched as soon as it exists.
+            for root in providers::watch_roots() {
+                if !watched.contains(&root)
+                    && debouncer.watcher().watch(&root, RecursiveMode::Recursive).is_ok()
+                {
+                    watched.insert(root);
+                }
+            }
             let due = last_hidden
                 .lock()
                 .unwrap()

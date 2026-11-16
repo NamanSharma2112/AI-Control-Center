@@ -39,6 +39,9 @@
   --cat-claude: #f5923e;
   --cat-codex: #5b9dff;
   --cat-agents: #f0659d;
+  --cat-chatgpt: #3ecf8e;
+  --cat-claudeweb: #e8a87c;
+  --cat-gemini: #a78bfa;
 
   /* State. Always paired with a word. */
   --ok: #3fb950;
@@ -79,6 +82,9 @@
   --cat-claude: #d2661a;
   --cat-codex: #2563eb;
   --cat-agents: #cf3478;
+  --cat-chatgpt: #12895a;
+  --cat-claudeweb: #b4602a;
+  --cat-gemini: #7c3aed;
 
   --ok: #1a7f37;
   --warn: #9a6700;

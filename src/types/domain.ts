@@ -7,7 +7,11 @@
  */
 
 /** Stable id of a provider the app knows how to talk to. */
-export type ProviderId = 'codex' | 'claude-code';
+/** Coding agents read from this computer, and chat sites seen through the
+ * browser extension. */
+export type ProviderId = 'codex' | 'claude-code' | 'chatgpt' | 'claude-web' | 'gemini';
+/** The coding agents whose CLI folders the app reads. */
+export type CliProviderId = 'claude-code' | 'codex';
 
 /**
  * Where a value came from. This is load-bearing, not metadata: a number the
